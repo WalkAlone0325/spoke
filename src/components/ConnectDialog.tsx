@@ -15,7 +15,7 @@ import {
   type StoredAuth,
   type StoredServer,
 } from "../store/settings";
-import { sshConnect } from "../hooks/useSshSession";
+import { sshConnect, sshTestConnect, type ConnectPayload } from "../hooks/useSshSession";
 
 type AuthKind = "password" | "privateKey";
 
@@ -94,16 +94,65 @@ export function ConnectDialog() {
 
   const [form, setForm] = useState<FormState>(empty);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<
+    { ok: boolean; msg: string } | null
+  >(null);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setTestResult(null);
     const editing = editingId ? servers.find((s) => s.id === editingId) : null;
     setForm(editing ? fromServer(editing) : empty);
   }, [open, editingId, servers]);
 
-  const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }));
+  const patch = (p: Partial<FormState>) => {
+    setForm((f) => ({ ...f, ...p }));
+    setTestResult(null);
+  };
+
+  const buildPayload = (): ConnectPayload => ({
+    host: form.host,
+    port: form.port,
+    username: form.username,
+    auth:
+      form.authKind === "password"
+        ? { kind: "password", password: form.password }
+        : {
+            kind: "privateKey",
+            path: form.keyPath,
+            passphrase: form.passphrase || undefined,
+          },
+  });
+
+  const validate = (): string | null => {
+    if (!form.host) return "请填写主机";
+    if (!form.username) return "请填写用户名";
+    if (form.authKind === "password" && !form.password) return "请填写密码";
+    if (form.authKind === "privateKey" && !form.keyPath) return "请填写私钥路径";
+    return null;
+  };
+
+  const onTest = async () => {
+    const err = validate();
+    if (err) {
+      setError(err);
+      return;
+    }
+    setTesting(true);
+    setError(null);
+    setTestResult(null);
+    try {
+      const msg = await sshTestConnect(buildPayload());
+      setTestResult({ ok: true, msg });
+    } catch (e: any) {
+      setTestResult({ ok: false, msg: String(e?.message ?? e) });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const save = async () => {
     const now = Date.now();
@@ -349,28 +398,61 @@ export function ConnectDialog() {
             </div>
           )}
 
-          <div className="mt-5 flex items-center justify-end gap-2">
-            <button
-              disabled={busy}
-              onClick={close}
-              className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-black/5 dark:text-ink-100/70 dark:hover:bg-white/5"
+          {testResult && (
+            <div
+              className={`mt-3 flex items-start gap-2 rounded-md px-2 py-1.5 text-xs ${
+                testResult.ok
+                  ? "bg-accent-500/10 text-accent-500"
+                  : "bg-red-500/10 text-red-500"
+              }`}
             >
-              取消
-            </button>
+              <span className="mt-[1px]">{testResult.ok ? "✓" : "✕"}</span>
+              <span className="flex-1 break-all">{testResult.msg}</span>
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center justify-between gap-2">
             <button
-              disabled={busy}
-              onClick={onSaveOnly}
-              className="rounded-md border border-black/10 px-3 py-1.5 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
+              disabled={busy || testing}
+              onClick={onTest}
+              className="flex items-center gap-1.5 rounded-md border border-brand-500/30 px-3 py-1.5 text-sm text-brand-500 transition-colors hover:bg-brand-500/10 disabled:opacity-50"
             >
-              仅保存
+              {testing ? (
+                <>
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-brand-500/30 border-t-brand-500" />
+                  <span>测试中…</span>
+                </>
+              ) : (
+                <>
+                  <span>⚡</span>
+                  <span>测试连接</span>
+                </>
+              )}
             </button>
-            <button
-              disabled={busy}
-              onClick={onConnect}
-              className="rounded-md bg-linear-to-r from-brand-500 to-accent-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-            >
-              {busy ? "连接中…" : "保存并连接"}
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                disabled={busy || testing}
+                onClick={close}
+                className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-black/5 dark:text-ink-100/70 dark:hover:bg-white/5"
+              >
+                取消
+              </button>
+              <button
+                disabled={busy || testing}
+                onClick={onSaveOnly}
+                className="rounded-md border border-black/10 px-3 py-1.5 text-sm hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
+              >
+                仅保存
+              </button>
+              <button
+                disabled={busy || testing}
+                onClick={onConnect}
+                className="rounded-md bg-linear-to-r from-brand-500 to-accent-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? "连接中…" : "保存并连接"}
+              </button>
+            </div>
           </div>
         </DialogPanel>
       </div>

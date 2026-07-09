@@ -36,6 +36,10 @@ export async function sshConnect(payload: ConnectPayload): Promise<string> {
   return res.sessionId;
 }
 
+export async function sshTestConnect(payload: ConnectPayload): Promise<string> {
+  return await invoke<string>("ssh_test_connect", { payload });
+}
+
 export async function sshSendData(sessionId: string, data: string) {
   await invoke("ssh_send_data", { sessionId, data });
 }

@@ -18,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(SessionManager::new())
         .invoke_handler(tauri::generate_handler![
+            commands::terminal::ssh_test_connect,
             commands::terminal::ssh_connect,
             commands::terminal::ssh_send_data,
             commands::terminal::ssh_resize,

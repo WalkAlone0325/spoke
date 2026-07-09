@@ -80,6 +80,57 @@ enum InputMsg {
 }
 
 impl SshSession {
+    pub async fn test_connect(params: &ConnectParams) -> SshResult<String> {
+        let config = Arc::new(Config {
+            inactivity_timeout: Some(Duration::from_secs(15)),
+            ..Config::default()
+        });
+        let addr = format!("{}:{}", params.host, params.port);
+        let mut handle = tokio::time::timeout(
+            Duration::from_secs(10),
+            client::connect(config, addr.as_str(), ClientHandler),
+        )
+        .await
+        .map_err(|_| SshError::Msg("连接超时（10s）".into()))?
+        .map_err(SshError::Russh)?;
+
+        let authed = match &params.auth {
+            AuthMethod::Password(pwd) => handle
+                .authenticate_password(params.username.clone(), pwd.clone())
+                .await
+                .map(|r| r.success())
+                .map_err(SshError::Russh)?,
+            AuthMethod::PrivateKey { path, passphrase } => {
+                let key = load_secret_key(path, passphrase.as_deref())
+                    .map_err(SshError::Key)?;
+                Self::auth_key(&mut handle, &params.username, key).await?
+            }
+            AuthMethod::PrivateKeyText { pem, passphrase } => {
+                let key = PrivateKey::from_openssh(pem.as_bytes())
+                    .map_err(|e| SshError::Msg(format!("解析私钥失败: {e}")))?;
+                let key = if let Some(pp) = passphrase {
+                    key.decrypt(pp.as_bytes())
+                        .map_err(|e| SshError::Msg(format!("私钥解密失败: {e}")))?
+                } else {
+                    key
+                };
+                Self::auth_key(&mut handle, &params.username, key).await?
+            }
+        };
+        if !authed {
+            let _ = handle
+                .disconnect(Disconnect::ByApplication, "test-fail", "en-US")
+                .await;
+            return Err(SshError::AuthFailed);
+        }
+
+        let banner = format!("已连接 {}:{}，认证成功", params.host, params.port);
+        let _ = handle
+            .disconnect(Disconnect::ByApplication, "test-ok", "en-US")
+            .await;
+        Ok(banner)
+    }
+
     pub async fn connect(
         params: ConnectParams,
         event_tx: mpsc::Sender<SessionEvent>,

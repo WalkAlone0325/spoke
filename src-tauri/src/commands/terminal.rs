@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::ssh::{AuthMethod, ConnectParams, SessionEvent, SessionId, SessionManager};
+use crate::ssh::{AuthMethod, ConnectParams, SessionEvent, SessionId, SessionManager, SshSession};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -66,6 +66,22 @@ fn default_rows() -> u32 {
 #[derive(Debug, Serialize)]
 pub struct ConnectResult {
     pub session_id: SessionId,
+}
+
+#[tauri::command]
+pub async fn ssh_test_connect(payload: ConnectPayload) -> Result<String, String> {
+    let params = ConnectParams {
+        host: payload.host,
+        port: payload.port,
+        username: payload.username,
+        auth: payload.auth.into(),
+        term: payload.term,
+        cols: payload.cols,
+        rows: payload.rows,
+    };
+    SshSession::test_connect(&params)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
