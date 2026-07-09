@@ -1,10 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useAppStore } from "./store/appStore";
 import { useSystemTheme } from "./hooks/useSystemTheme";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalArea } from "./components/TerminalArea";
 import { SftpPanel } from "./components/SftpPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
+import { ConnectDialog } from "./components/ConnectDialog";
+import { loadServers } from "./store/settings";
 
 function App() {
   useSystemTheme();
@@ -13,6 +15,13 @@ function App() {
   const sftpCollapsed = useAppStore((s) => s.sftpPanelCollapsed);
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth);
   const setSftpPanelHeight = useAppStore((s) => s.setSftpPanelHeight);
+  const setServers = useAppStore((s) => s.setServers);
+
+  useEffect(() => {
+    loadServers()
+      .then(setServers)
+      .catch((e) => console.error("加载服务器失败", e));
+  }, [setServers]);
 
   const onSidebarDrag = useCallback(
     (dx: number) => setSidebarWidth(sidebarWidth + dx),
@@ -41,6 +50,8 @@ function App() {
           <SftpPanel />
         </div>
       </div>
+
+      <ConnectDialog />
     </div>
   );
 }

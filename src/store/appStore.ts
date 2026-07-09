@@ -1,15 +1,9 @@
 import { create } from "zustand";
+import type { StoredServer } from "./settings";
 
 export type ThemeMode = "system" | "light" | "dark";
 
-export interface ServerConfig {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  username: string;
-  groupId?: string;
-}
+export type ServerConfig = StoredServer;
 
 export interface ServerGroup {
   id: string;
@@ -34,9 +28,12 @@ interface AppState {
   sftpPanelHeight: number;
   sftpPanelCollapsed: boolean;
   sidebarWidth: number;
+  connectDialogOpen: boolean;
+  editingServerId: string | null;
 
   setThemeMode: (mode: ThemeMode) => void;
   setIsDark: (dark: boolean) => void;
+  setServers: (list: ServerConfig[]) => void;
   addTab: (tab: TerminalTab) => void;
   updateTab: (id: string, patch: Partial<TerminalTab>) => void;
   closeTab: (id: string) => void;
@@ -44,6 +41,8 @@ interface AppState {
   setSftpPanelHeight: (h: number) => void;
   toggleSftpPanel: () => void;
   setSidebarWidth: (w: number) => void;
+  openConnectDialog: (editingId?: string | null) => void;
+  closeConnectDialog: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -59,9 +58,12 @@ export const useAppStore = create<AppState>((set) => ({
   sftpPanelHeight: 200,
   sftpPanelCollapsed: false,
   sidebarWidth: 220,
+  connectDialogOpen: false,
+  editingServerId: null,
 
   setThemeMode: (mode) => set({ themeMode: mode }),
   setIsDark: (dark) => set({ isDark: dark }),
+  setServers: (list) => set({ servers: list }),
   addTab: (tab) =>
     set((s) => ({
       tabs: [...s.tabs, tab],
@@ -82,4 +84,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSftpPanelHeight: (h) => set({ sftpPanelHeight: Math.max(120, Math.min(600, h)) }),
   toggleSftpPanel: () => set((s) => ({ sftpPanelCollapsed: !s.sftpPanelCollapsed })),
   setSidebarWidth: (w) => set({ sidebarWidth: Math.max(160, Math.min(400, w)) }),
+  openConnectDialog: (editingId = null) =>
+    set({ connectDialogOpen: true, editingServerId: editingId }),
+  closeConnectDialog: () => set({ connectDialogOpen: false, editingServerId: null }),
 }));
