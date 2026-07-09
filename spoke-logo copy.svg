@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- 辐条渐变 -->
+    <linearGradient id="spokeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0057FF" />
+      <stop offset="100%" stop-color="#00C8A0" />
+    </linearGradient>
+    <!-- 可选：中心圆颜色（深空灰） -->
+    <linearGradient id="hubGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A3A3C" />
+      <stop offset="100%" stop-color="#1C1C1E" />
+    </linearGradient>
+  </defs>
+
+  <!-- 三条辐条（曲线） -->
+  <!-- 辐条 1（右上） -->
+  <path d="M 100 100
+           C 130 90, 150 70, 165 55"
+        fill="none" stroke="url(#spokeGradient)" stroke-width="12" stroke-linecap="round" />
+  <!-- 辐条 2（右下） -->
+  <path d="M 100 100
+           C 130 120, 155 135, 170 155"
+        fill="none" stroke="url(#spokeGradient)" stroke-width="12" stroke-linecap="round" />
+  <!-- 辐条 3（左） -->
+  <path d="M 100 100
+           C 80 110, 60 120, 40 130"
+        fill="none" stroke="url(#spokeGradient)" stroke-width="12" stroke-linecap="round" />
+
+  <!-- 中心枢纽（圆） -->
+  <circle cx="100" cy="100" r="28" fill="url(#hubGradient)" />
+  <!-- 可选：中心高光（提升质感） -->
+  <circle cx="100" cy="100" r="28" fill="none" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="2" />
+</svg>
