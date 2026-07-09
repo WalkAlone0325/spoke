@@ -38,6 +38,7 @@ interface AppState {
   setThemeMode: (mode: ThemeMode) => void;
   setIsDark: (dark: boolean) => void;
   addTab: (tab: TerminalTab) => void;
+  updateTab: (id: string, patch: Partial<TerminalTab>) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string | null) => void;
   setSftpPanelHeight: (h: number) => void;
@@ -65,6 +66,10 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({
       tabs: [...s.tabs, tab],
       activeTabId: tab.id,
+    })),
+  updateTab: (id, patch) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)),
     })),
   closeTab: (id) =>
     set((s) => {
