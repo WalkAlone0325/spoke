@@ -1,4 +1,12 @@
-import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
+import {
+  Dialog,
+  DialogPanel,
+  DialogTitle,
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+} from "@headlessui/react";
 import { useEffect, useState } from "react";
 import { useAppStore, type TerminalTab } from "../store/appStore";
 import {
@@ -218,17 +226,62 @@ export function ConnectDialog() {
               />
             </Field>
             <Field label="分组" span={2}>
-              <select
-                className={inputCls}
+              <Listbox
                 value={form.groupId}
-                onChange={(e) => patch({ groupId: e.target.value })}
+                onChange={(v) => patch({ groupId: v })}
               >
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
+                <div className="relative">
+                  <ListboxButton
+                    className={`${inputCls} flex items-center justify-between text-left data-[open]:border-brand-500`}
+                  >
+                    <span className="flex items-center gap-1.5 truncate">
+                      <span className="h-1.5 w-1.5 rounded-full bg-linear-to-r from-brand-500 to-accent-500" />
+                      <span className="truncate">
+                        {groups.find((g) => g.id === form.groupId)?.name ??
+                          "选择分组"}
+                      </span>
+                    </span>
+                    <svg
+                      viewBox="0 0 20 20"
+                      className="h-3.5 w-3.5 text-ink-600/60 transition-transform data-[open]:rotate-180 dark:text-ink-100/50"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m5 7.5 5 5 5-5" />
+                    </svg>
+                  </ListboxButton>
+                  <ListboxOptions
+                    anchor="bottom start"
+                    transition
+                    className="z-[60] mt-1 w-[var(--button-width)] min-w-40 origin-top rounded-lg border border-black/10 bg-white/95 p-1 shadow-xl backdrop-blur transition duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0 dark:border-white/10 dark:bg-ink-800/95"
+                  >
+                    {groups.map((g) => (
+                      <ListboxOption
+                        key={g.id}
+                        value={g.id}
+                        className="group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-ink-800 transition-colors data-[focus]:bg-brand-500/10 data-[selected]:text-brand-500 dark:text-ink-100"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-ink-600/40 group-data-[selected]:bg-linear-to-r group-data-[selected]:from-brand-500 group-data-[selected]:to-accent-500" />
+                        <span className="flex-1 truncate">{g.name}</span>
+                        <svg
+                          viewBox="0 0 20 20"
+                          className="hidden h-3.5 w-3.5 text-brand-500 group-data-[selected]:block"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="m4 10 4 4 8-8" />
+                        </svg>
+                      </ListboxOption>
+                    ))}
+                  </ListboxOptions>
+                </div>
+              </Listbox>
             </Field>
 
             <Field label="认证方式" span={4}>
