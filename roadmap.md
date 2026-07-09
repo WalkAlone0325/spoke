@@ -114,14 +114,14 @@
 ### 🟢 Phase 1：SSH 终端核心（预计 3 天）
 *目标：能连接服务器，输入命令并看到输出。*
 
-- [ ] 1.1 Rust 端实现 SSH 连接器（`russh::client::connect`），支持密码和私钥认证
-- [ ] 1.2 编写 Tauri Command `ssh_connect`，返回 session ID
-- [ ] 1.3 封装 XTerm.js 组件，集成 `fitAddon`（自适应）和 `webglAddon`（加速）
-- [ ] 1.4 建立 IPC 双向通信：
+- [x] 1.1 Rust 端实现 SSH 连接器（`russh::client::connect`），支持密码和私钥认证
+- [x] 1.2 编写 Tauri Command `ssh_connect`，返回 session ID
+- [x] 1.3 封装 XTerm.js 组件，集成 `fitAddon`（自适应）和 `webglAddon`（加速）
+- [x] 1.4 建立 IPC 双向通信：
   - 前端输入 → `invoke('send_data', { data })` → Rust 写入 SSH channel
   - Rust 异步读取 channel 输出 → `emit` 事件 → 前端写入 XTerm
-- [ ] 1.5 实现会话保活（每 30s 发送 keepalive 包）
-- [ ] 1.6 保存连接配置（主机、端口、用户名）到 `settings.json`（使用 `tauri-plugin-store`），密码暂明文存储（仅开发阶段）
+- [x] 1.5 实现会话保活（每 30s 发送 keepalive 包）
+- [x] 1.6 保存连接配置（主机、端口、用户名）到 `settings.json`（使用 `tauri-plugin-store`），密码暂明文存储（仅开发阶段）
 
 ---
 
