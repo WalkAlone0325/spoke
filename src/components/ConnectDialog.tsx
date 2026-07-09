@@ -285,21 +285,11 @@ export function ConnectDialog() {
             </Field>
 
             <Field label="认证方式" span={4}>
-              <div className="relative inline-flex rounded-lg border border-black/10 bg-ink-50/60 p-0.5 dark:border-white/10 dark:bg-ink-900/40">
-                <div
-                  className="absolute inset-y-0.5 w-1/2 rounded-md bg-linear-to-r from-brand-500 to-accent-500 shadow-sm transition-transform duration-200 ease-out"
-                  style={{
-                    transform:
-                      form.authKind === "password"
-                        ? "translateX(0%)"
-                        : "translateX(100%)",
-                  }}
-                  aria-hidden
-                />
+              <div className="grid grid-cols-2 gap-2">
                 {(
                   [
-                    { key: "password", label: "密码", icon: "🔑" },
-                    { key: "privateKey", label: "私钥", icon: "🗝️" },
+                    { key: "password", label: "密码" },
+                    { key: "privateKey", label: "私钥" },
                   ] as const
                 ).map((opt) => {
                   const active = form.authKind === opt.key;
@@ -308,14 +298,13 @@ export function ConnectDialog() {
                       key={opt.key}
                       type="button"
                       onClick={() => patch({ authKind: opt.key })}
-                      className={`relative z-10 flex min-w-24 items-center justify-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium transition-colors ${
+                      className={`h-9 rounded-md border text-xs font-medium transition-colors ${
                         active
-                          ? "text-white"
-                          : "text-ink-600 hover:text-ink-900 dark:text-ink-100/70 dark:hover:text-ink-100"
+                          ? "border-brand-500 bg-brand-500/10 text-brand-500"
+                          : "border-black/10 text-ink-600 hover:border-black/20 hover:bg-black/5 dark:border-white/10 dark:text-ink-100/70 dark:hover:border-white/20 dark:hover:bg-white/5"
                       }`}
                     >
-                      <span className="text-[13px]">{opt.icon}</span>
-                      <span>{opt.label}</span>
+                      {opt.label}
                     </button>
                   );
                 })}
