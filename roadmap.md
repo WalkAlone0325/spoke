@@ -102,12 +102,12 @@
 ### 🟢 Phase 0：项目基建与骨架（预计 1 天）
 *目标：搭建 Tauri 项目，完成 UI 骨架和主题适配。*
 
-- [ ] 0.1 初始化 Tauri v2 项目 (`pnpm create tauri-app`)，选择 React + TS
-- [ ] 0.2 安装并配置 Tailwind CSS + Headless UI
-- [ ] 0.3 创建三栏布局（左侧边栏、中央区域、底部可拖拽面板），使用 Tauri 拖拽分割线
-- [ ] 0.4 实现暗色/亮色模式跟随系统（`usePreferredDark` + `tauri-plugin-os`）
-- [ ] 0.5 安装 Zustand，创建全局 `useAppStore`（服务器列表、活动标签页 ID 等）
-- [ ] 0.6 将 Logo SVG 设置为应用图标（生成各平台图标并配置 `tauri.conf.json`）
+- [x] 0.1 初始化 Tauri v2 项目 (`pnpm create tauri-app`)，选择 React + TS
+- [x] 0.2 安装并配置 Tailwind CSS + Headless UI
+- [x] 0.3 创建三栏布局（左侧边栏、中央区域、底部可拖拽面板），使用 Tauri 拖拽分割线
+- [x] 0.4 实现暗色/亮色模式跟随系统（`usePreferredDark` + `tauri-plugin-os`）
+- [x] 0.5 安装 Zustand，创建全局 `useAppStore`（服务器列表、活动标签页 ID 等）
+- [x] 0.6 将 Logo SVG 设置为应用图标（生成各平台图标并配置 `tauri.conf.json`）
 
 ---
 
