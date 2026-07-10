@@ -10,6 +10,7 @@ import {
   joinLocal,
   joinRemote,
   localHome,
+  localIsDir,
   localList,
   parentLocal,
   parentRemote,
@@ -18,6 +19,7 @@ import {
   sftpList,
   sftpRemove,
   sftpUpload,
+  sftpUploadDir,
   type LocalEntry,
   type RemoteEntry,
   type TransferProgress,
@@ -41,10 +43,15 @@ function formatSize(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function EntryIcon({ kind }: { kind: string }) {
+function EntryIcon({ kind, name = "" }: { kind: string; name?: string }) {
+  const hidden = name.startsWith(".");
   if (kind === "dir")
     return (
-      <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-brand-500" fill="currentColor">
+      <svg
+        viewBox="0 0 20 20"
+        className={`h-3.5 w-3.5 shrink-0 ${hidden ? "text-brand-500/40" : "text-brand-500"}`}
+        fill="currentColor"
+      >
         <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h3.379a1.5 1.5 0 0 1 1.06.44L9.5 5.5h7A1.5 1.5 0 0 1 18 7v7.5A1.5 1.5 0 0 1 16.5 16h-13A1.5 1.5 0 0 1 2 14.5z" />
       </svg>
     );
@@ -56,7 +63,15 @@ function EntryIcon({ kind }: { kind: string }) {
       </svg>
     );
   return (
-    <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-ink-500 dark:text-ink-400" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 20 20"
+      className={`h-3.5 w-3.5 shrink-0 ${hidden ? "text-ink-500/50 dark:text-ink-400/50" : "text-ink-500 dark:text-ink-400"}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M5 2h7l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
       <path d="M12 2v4h4" />
     </svg>
@@ -89,6 +104,9 @@ export function SftpPanel() {
   } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
+  const [remoteSelected, setRemoteSelected] = useState<Set<string>>(new Set());
+  const [innerDragOver, setInnerDragOver] = useState(false);
 
   useEffect(() => {
     if (!localCwd) {
@@ -132,18 +150,30 @@ export function SftpPanel() {
   }, [sessionId, remoteCwd]);
 
   const uploadFiles = useCallback(
-    async (files: string[]) => {
+    async (paths: string[]) => {
       if (!sessionId || !remoteCwd) return;
-      for (const file of files) {
-        const name = file.split(/[\\/]/).pop() ?? "upload";
+      for (const p of paths) {
+        const name = p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "upload";
         const id = crypto.randomUUID();
         const remotePath = joinRemote(remoteCwd, name);
+        let isDir = false;
+        try {
+          isDir = await localIsDir(p);
+        } catch {}
         setTransfers((prev) => [
           ...prev,
-          { id, direction: "upload", name, transferred: 0, done: false },
+          {
+            id,
+            direction: "upload",
+            name: isDir ? `${name}/` : name,
+            transferred: 0,
+            done: false,
+          },
         ]);
         try {
-          const total = await sftpUpload(sessionId, file, remotePath, id);
+          const total = isDir
+            ? await sftpUploadDir(sessionId, p, remotePath, id)
+            : await sftpUpload(sessionId, p, remotePath, id);
           setTransfers((prev) =>
             prev.map((t) =>
               t.id === id ? { ...t, transferred: total, total, done: true } : t,
@@ -223,17 +253,20 @@ export function SftpPanel() {
     if (!sessionId) return;
     if (entry.kind === "dir" || entry.kind === "symlink") {
       setRemoteCwd(sessionId, joinRemote(remoteCwd, entry.name));
+      setRemoteSelected(new Set());
     }
   };
 
   const upRemote = () => {
     if (!sessionId || !remoteCwd) return;
     setRemoteCwd(sessionId, parentRemote(remoteCwd));
+    setRemoteSelected(new Set());
   };
 
   const enterLocal = (entry: LocalEntry) => {
     if (entry.kind === "dir" || entry.kind === "symlink") {
       setLocalCwd(joinLocal(localCwd, entry.name));
+      setLocalSelected(new Set());
     }
   };
 
@@ -245,6 +278,32 @@ export function SftpPanel() {
     if (!picked) return;
     const files = Array.isArray(picked) ? picked : [picked];
     await uploadFiles(files);
+  };
+
+  const handleUploadDir = async () => {
+    if (!sessionId || !remoteCwd) return;
+    const picked = await open({ multiple: false, directory: true });
+    if (!picked) return;
+    await uploadFiles([picked as string]);
+  };
+
+  const openUploadMenu = (e: React.MouseEvent) => {
+    if (!sessionId || !remoteCwd) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({
+      x: rect.left,
+      y: rect.bottom + 4,
+      items: [
+        {
+          label: "选择文件…",
+          onClick: () => void handleUpload(),
+        },
+        {
+          label: "选择目录…",
+          onClick: () => void handleUploadDir(),
+        },
+      ],
+    });
   };
 
   const handleDownload = async (entry: RemoteEntry) => {
@@ -288,35 +347,87 @@ export function SftpPanel() {
     e.preventDefault();
     e.stopPropagation();
     if (!sessionId) return;
+    let targets: RemoteEntry[];
+    if (remoteSelected.has(entry.path) && remoteSelected.size > 1) {
+      const set = remoteSelected;
+      targets = remoteEntries.filter((r) => set.has(r.path));
+    } else {
+      targets = [entry];
+      setRemoteSelected(new Set([entry.path]));
+    }
+    const multi = targets.length > 1;
     const items: ContextMenuItem[] = [];
-    if (entry.kind === "dir") {
+    if (!multi) {
+      if (entry.kind === "dir") {
+        items.push({
+          label: "打开",
+          onClick: () => enterRemote(entry),
+        });
+        items.push({
+          label: "在终端打开 (cd)",
+          onClick: () => {
+            void sshSendData(sessionId, `cd ${quoteShell(entry.path)}\n`);
+          },
+        });
+      } else if (entry.kind === "file") {
+        items.push({
+          label: "下载…",
+          onClick: () => void handleDownload(entry),
+        });
+      }
       items.push({
-        label: "打开",
-        onClick: () => enterRemote(entry),
+        label: "复制路径",
+        onClick: () => void writeText(entry.path),
+        separatorAfter: true,
       });
       items.push({
-        label: "在终端打开 (cd)",
-        onClick: () => {
-          void sshSendData(sessionId, `cd ${quoteShell(entry.path)}\n`);
-        },
+        label: "删除",
+        danger: true,
+        onClick: () => void handleRemove(entry),
       });
-    } else if (entry.kind === "file") {
+    } else {
+      const paths = targets.map((t) => t.path);
+      const fileCount = targets.filter((t) => t.kind === "file").length;
       items.push({
-        label: "下载…",
-        onClick: () => void handleDownload(entry),
+        label: `下载 ${fileCount} 个文件…`,
+        disabled: fileCount === 0,
+        onClick: () => void handleDownloadMany(targets),
+      });
+      items.push({
+        label: "复制路径",
+        onClick: () => void writeText(paths.join("\n")),
+        separatorAfter: true,
+      });
+      items.push({
+        label: `删除 ${paths.length} 项`,
+        danger: true,
+        onClick: () => void handleRemoveMany(paths),
       });
     }
-    items.push({
-      label: "复制路径",
-      onClick: () => void writeText(entry.path),
-      separatorAfter: true,
-    });
-    items.push({
-      label: "删除",
-      danger: true,
-      onClick: () => void handleRemove(entry),
-    });
     setMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
+  const onRemoteRowClick = (e: React.MouseEvent, entry: RemoteEntry) => {
+    if (e.metaKey || e.ctrlKey) {
+      setRemoteSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.path)) next.delete(entry.path);
+        else next.add(entry.path);
+        return next;
+      });
+    } else if (e.shiftKey && remoteSelected.size > 0) {
+      const last = [...remoteSelected].pop();
+      const idxA = remoteEntries.findIndex((x) => x.path === last);
+      const idxB = remoteEntries.findIndex((x) => x.path === entry.path);
+      if (idxA >= 0 && idxB >= 0) {
+        const [lo, hi] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+        setRemoteSelected(
+          new Set(remoteEntries.slice(lo, hi + 1).map((x) => x.path)),
+        );
+      }
+    } else {
+      setRemoteSelected(new Set([entry.path]));
+    }
   };
 
   const openRemoteBlankMenu = (e: React.MouseEvent) => {
@@ -329,6 +440,11 @@ export function SftpPanel() {
         {
           label: "上传文件…",
           onClick: () => void handleUpload(),
+        },
+        {
+          label: "上传目录…",
+          onClick: () => void handleUploadDir(),
+          separatorAfter: true,
         },
         {
           label: "刷新",
@@ -353,13 +469,170 @@ export function SftpPanel() {
     }
   };
 
+  const handleRemoveMany = async (paths: string[]) => {
+    if (!sessionId || paths.length === 0) return;
+    if (
+      !window.confirm(
+        `确定删除选中的 ${paths.length} 项？此操作不可恢复。`,
+      )
+    )
+      return;
+    for (const p of paths) {
+      try {
+        await sftpRemove(sessionId, p);
+      } catch (e) {
+        console.error("删除失败", p, e);
+      }
+    }
+    setRemoteSelected(new Set());
+    void refreshRemote();
+  };
+
+  const handleDownloadMany = async (entries: RemoteEntry[]) => {
+    if (!sessionId) return;
+    const files = entries.filter((e) => e.kind === "file");
+    const skipped = entries.length - files.length;
+    if (files.length === 0) {
+      if (skipped > 0) window.alert("目录批量下载暂未支持");
+      return;
+    }
+    const dir = await open({ directory: true, multiple: false });
+    if (!dir) return;
+    for (const entry of files) {
+      const id = crypto.randomUUID();
+      const target = joinLocal(dir as string, entry.name);
+      setTransfers((prev) => [
+        ...prev,
+        {
+          id,
+          direction: "download",
+          name: entry.name,
+          transferred: 0,
+          total: entry.size,
+          done: false,
+        },
+      ]);
+      try {
+        const total = await sftpDownload(sessionId, entry.path, target, id);
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.id === id ? { ...t, transferred: total, total, done: true } : t,
+          ),
+        );
+      } catch (e) {
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.id === id ? { ...t, done: true, error: String(e) } : t,
+          ),
+        );
+      }
+    }
+    void localList(localCwd).then(setLocalEntries).catch(() => {});
+    if (skipped > 0) window.alert(`已跳过 ${skipped} 个目录（暂未支持递归下载）`);
+  };
+
+  const uploadSelected = () => {
+    if (!sessionId || localSelected.size === 0) return;
+    void uploadFiles(Array.from(localSelected));
+  };
+
+  const openLocalMenu = (e: React.MouseEvent, entry: LocalEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isSelected = localSelected.has(entry.path);
+    let targets: string[];
+    if (isSelected && localSelected.size > 1) {
+      targets = Array.from(localSelected);
+    } else {
+      targets = [entry.path];
+      setLocalSelected(new Set([entry.path]));
+    }
+    const label =
+      targets.length > 1 ? `上传 ${targets.length} 项到远程` : `上传到远程`;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label,
+          disabled: !sessionId,
+          onClick: () => void uploadFiles(targets),
+        },
+        {
+          label: "复制路径",
+          onClick: () => void writeText(targets.join("\n")),
+        },
+      ],
+    });
+  };
+
+  const onLocalRowClick = (e: React.MouseEvent, entry: LocalEntry) => {
+    if (e.metaKey || e.ctrlKey) {
+      setLocalSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.path)) next.delete(entry.path);
+        else next.add(entry.path);
+        return next;
+      });
+    } else if (e.shiftKey && localSelected.size > 0) {
+      const last = [...localSelected].pop();
+      const idxA = localEntries.findIndex((x) => x.path === last);
+      const idxB = localEntries.findIndex((x) => x.path === entry.path);
+      if (idxA >= 0 && idxB >= 0) {
+        const [lo, hi] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+        setLocalSelected(
+          new Set(localEntries.slice(lo, hi + 1).map((x) => x.path)),
+        );
+      }
+    } else {
+      setLocalSelected(new Set([entry.path]));
+    }
+  };
+
+  const onLocalDragStart = (e: React.DragEvent, entry: LocalEntry) => {
+    let paths: string[];
+    if (localSelected.has(entry.path) && localSelected.size > 1) {
+      paths = Array.from(localSelected);
+    } else {
+      paths = [entry.path];
+      setLocalSelected(new Set([entry.path]));
+    }
+    e.dataTransfer.setData("application/x-spoke-local", JSON.stringify(paths));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  const onRemoteDragOver = (e: React.DragEvent) => {
+    if (!sessionId) return;
+    if (!e.dataTransfer.types.includes("application/x-spoke-local")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (!innerDragOver) setInnerDragOver(true);
+  };
+
+  const onRemoteDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setInnerDragOver(false);
+  };
+
+  const onRemoteDrop = (e: React.DragEvent) => {
+    const raw = e.dataTransfer.getData("application/x-spoke-local");
+    setInnerDragOver(false);
+    if (!raw || !sessionId) return;
+    e.preventDefault();
+    try {
+      const paths = JSON.parse(raw) as string[];
+      if (Array.isArray(paths) && paths.length > 0) {
+        void uploadFiles(paths);
+      }
+    } catch {}
+  };
+
   return (
     <section className="flex h-full min-h-0 flex-col">
       <div
         data-tauri-drag-region
         className="flex items-center justify-between border-b border-black/[0.06] px-3 py-1.5 dark:border-white/[0.06]"
       >
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-sm">
           <div className="grid h-5 w-5 place-items-center rounded-md bg-linear-to-br from-brand-500/15 to-accent-500/15">
             <svg viewBox="0 0 20 20" className="h-3 w-3 text-brand-500" fill="currentColor">
               <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h3.379a1.5 1.5 0 0 1 1.06.44L9.5 5.5h7A1.5 1.5 0 0 1 18 7v7.5A1.5 1.5 0 0 1 16.5 16h-13A1.5 1.5 0 0 1 2 14.5z" />
@@ -369,20 +642,20 @@ export function SftpPanel() {
             文件管理器
           </span>
           {sessionId ? (
-            <span className="rounded-full bg-accent-500/10 px-2 py-[1px] text-[10px] font-medium text-accent-500">
+            <span className="rounded-full bg-accent-500/10 px-2 py-[1px] text-[11px] font-medium text-accent-500">
               已连接
             </span>
           ) : (
-            <span className="rounded-full bg-ink-500/10 px-2 py-[1px] text-[10px] font-medium text-ink-500 dark:text-ink-400">
+            <span className="rounded-full bg-ink-500/10 px-2 py-[1px] text-[11px] font-medium text-ink-500 dark:text-ink-400">
               未连接
             </span>
           )}
         </div>
         <div className="flex items-center gap-0.5">
           <IconButton
-            onClick={handleUpload}
+            onClick={openUploadMenu}
             disabled={!sessionId}
-            title="上传文件"
+            title="上传（文件或目录）"
           >
             <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10 3v10M5 8l5-5 5 5M4 17h12" />
@@ -425,6 +698,12 @@ export function SftpPanel() {
               onUp={upLocal}
               onEnter={enterLocal}
               onNav={setLocalCwd}
+              selected={localSelected}
+              onRowClick={onLocalRowClick}
+              onRowContextMenu={openLocalMenu}
+              onDragStart={onLocalDragStart}
+              connected={!!sessionId}
+              uploadSelected={uploadSelected}
             />
             <RemoteColumn
               connected={!!sessionId}
@@ -440,6 +719,20 @@ export function SftpPanel() {
               onBlankContextMenu={openRemoteBlankMenu}
               dropRef={dropZoneRef}
               dragOver={dragOver}
+              innerDragOver={innerDragOver}
+              onInnerDragOver={onRemoteDragOver}
+              onInnerDragLeave={onRemoteDragLeave}
+              onInnerDrop={onRemoteDrop}
+              selected={remoteSelected}
+              onRowClick={onRemoteRowClick}
+              onBatchDownload={() =>
+                void handleDownloadMany(
+                  remoteEntries.filter((r) => remoteSelected.has(r.path)),
+                )
+              }
+              onBatchRemove={() =>
+                void handleRemoveMany(Array.from(remoteSelected))
+              }
             />
           </div>
 
@@ -473,7 +766,7 @@ function IconButton({
   title,
 }: {
   children: React.ReactNode;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   disabled?: boolean;
   title?: string;
 }) {
@@ -524,7 +817,7 @@ function Breadcrumbs({
   }, [cwd, isLocal]);
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-[11px] text-ink-600 dark:text-ink-300">
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-xs text-ink-600 dark:text-ink-300">
       <button
         onClick={() => onNav(isLocal ? "/" : "/")}
         className="rounded px-1 hover:bg-black/5 dark:hover:bg-white/10"
@@ -554,12 +847,24 @@ function LocalColumn({
   onUp,
   onEnter,
   onNav,
+  selected,
+  onRowClick,
+  onRowContextMenu,
+  onDragStart,
+  connected,
+  uploadSelected,
 }: {
   cwd: string;
   entries: LocalEntry[];
   onUp: () => void;
   onEnter: (e: LocalEntry) => void;
   onNav: (p: string) => void;
+  selected: Set<string>;
+  onRowClick: (e: React.MouseEvent, entry: LocalEntry) => void;
+  onRowContextMenu: (e: React.MouseEvent, entry: LocalEntry) => void;
+  onDragStart: (e: React.DragEvent, entry: LocalEntry) => void;
+  connected: boolean;
+  uploadSelected: () => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -570,16 +875,38 @@ function LocalColumn({
   });
   return (
     <div className="flex min-h-0 flex-col">
-      <PathBar label="本地" cwd={cwd} onUp={onUp} onNav={onNav} isLocal />
+      <PathBar
+        label="本地"
+        cwd={cwd}
+        onUp={onUp}
+        onNav={onNav}
+        isLocal
+        extra={
+          selected.size > 0 && connected ? (
+            <button
+              onClick={uploadSelected}
+              className="ml-auto flex items-center gap-1 rounded-md bg-brand-500/10 px-1.5 py-[1px] text-[11px] font-medium text-brand-500 transition-colors hover:bg-brand-500/20"
+            >
+              <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M10 3v10M5 8l5-5 5 5" />
+              </svg>
+              上传 ({selected.size})
+            </button>
+          ) : null
+        }
+      />
       <div ref={parentRef} className="flex-1 overflow-auto">
         <div
           style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
         >
           {rowVirtualizer.getVirtualItems().map((row) => {
             const item = entries[row.index];
+            const isSel = selected.has(item.path);
             return (
               <div
                 key={row.key}
+                draggable
+                onDragStart={(e) => onDragStart(e, item)}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -588,13 +915,19 @@ function LocalColumn({
                   transform: `translateY(${row.start}px)`,
                   height: row.size,
                 }}
+                onClick={(e) => onRowClick(e, item)}
                 onDoubleClick={() => onEnter(item)}
-                className="group flex cursor-pointer items-center gap-2 px-3 text-xs transition-colors hover:bg-brand-500/5 dark:hover:bg-brand-500/10"
+                onContextMenu={(e) => onRowContextMenu(e, item)}
+                className={`group flex cursor-pointer select-none items-center gap-2 px-3 text-sm transition-colors ${
+                  isSel
+                    ? "bg-brand-500/15 text-brand-500 dark:bg-brand-500/20"
+                    : "hover:bg-brand-500/5 dark:hover:bg-brand-500/10"
+                }`}
               >
-                <EntryIcon kind={item.kind} />
+                <EntryIcon kind={item.kind} name={item.name} />
                 <span className="flex-1 truncate">{item.name}</span>
                 {item.kind === "file" && (
-                  <span className="text-[10px] tabular-nums text-ink-500 dark:text-ink-400">
+                  <span className="text-[11px] tabular-nums text-ink-500 dark:text-ink-400">
                     {formatSize(item.size)}
                   </span>
                 )}
@@ -621,6 +954,14 @@ function RemoteColumn({
   onBlankContextMenu,
   dropRef,
   dragOver,
+  innerDragOver,
+  onInnerDragOver,
+  onInnerDragLeave,
+  onInnerDrop,
+  selected,
+  onRowClick,
+  onBatchDownload,
+  onBatchRemove,
 }: {
   connected: boolean;
   loading: boolean;
@@ -635,6 +976,14 @@ function RemoteColumn({
   onBlankContextMenu: (e: React.MouseEvent) => void;
   dropRef: React.RefObject<HTMLDivElement | null>;
   dragOver: boolean;
+  innerDragOver: boolean;
+  onInnerDragOver: (e: React.DragEvent) => void;
+  onInnerDragLeave: (e: React.DragEvent) => void;
+  onInnerDrop: (e: React.DragEvent) => void;
+  selected: Set<string>;
+  onRowClick: (e: React.MouseEvent, entry: RemoteEntry) => void;
+  onBatchDownload: () => void;
+  onBatchRemove: () => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -673,6 +1022,7 @@ function RemoteColumn({
         >
           {rowVirtualizer.getVirtualItems().map((row) => {
             const item = entries[row.index];
+            const isSel = selected.has(item.path);
             return (
               <div
                 key={row.key}
@@ -685,15 +1035,20 @@ function RemoteColumn({
                   transform: `translateY(${row.start}px)`,
                   height: row.size,
                 }}
+                onClick={(e) => onRowClick(e, item)}
                 onDoubleClick={() => onEnter(item)}
                 onContextMenu={(e) => onEntryContextMenu(e, item)}
-                className="group flex cursor-pointer items-center gap-2 px-3 text-xs transition-colors hover:bg-brand-500/5 dark:hover:bg-brand-500/10"
+                className={`group flex cursor-pointer select-none items-center gap-2 px-3 text-sm transition-colors ${
+                  isSel
+                    ? "bg-brand-500/15 text-brand-500 dark:bg-brand-500/20"
+                    : "hover:bg-brand-500/5 dark:hover:bg-brand-500/10"
+                }`}
               >
-                <EntryIcon kind={item.kind} />
+                <EntryIcon kind={item.kind} name={item.name} />
                 <span className="flex-1 truncate">{item.name}</span>
                 {item.kind === "file" && (
                   <>
-                    <span className="text-[10px] tabular-nums text-ink-500 dark:text-ink-400">
+                    <span className="text-[11px] tabular-nums text-ink-500 dark:text-ink-400">
                       {formatSize(item.size)}
                     </span>
                     <button
@@ -723,6 +1078,9 @@ function RemoteColumn({
       ref={dropRef}
       className="relative flex min-h-0 flex-col"
       onContextMenu={onBlankContextMenu}
+      onDragOver={onInnerDragOver}
+      onDragLeave={onInnerDragLeave}
+      onDrop={onInnerDrop}
     >
       <PathBar
         label="远程"
@@ -730,9 +1088,35 @@ function RemoteColumn({
         onUp={onUp}
         onNav={onNav}
         disabled={!connected}
+        extra={
+          selected.size > 0 && connected ? (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={onBatchDownload}
+                className="flex items-center gap-1 rounded-md bg-accent-500/10 px-1.5 py-[1px] text-[11px] font-medium text-accent-500 transition-colors hover:bg-accent-500/20"
+                title="下载选中"
+              >
+                <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M10 3v10M5 12l5 5 5-5" />
+                </svg>
+                下载 ({selected.size})
+              </button>
+              <button
+                onClick={onBatchRemove}
+                className="flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-[1px] text-[11px] font-medium text-red-500 transition-colors hover:bg-red-500/20"
+                title="删除选中"
+              >
+                <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 5h12M8 5V3h4v2M6 5v12h8V5" />
+                </svg>
+                删除
+              </button>
+            </div>
+          ) : null
+        }
       />
       {body}
-      {dragOver && connected && (
+      {(dragOver || innerDragOver) && connected && (
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-brand-500/10 backdrop-blur-sm ring-2 ring-inset ring-brand-500/50">
           <div className="rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-brand-500 shadow-lg dark:bg-ink-800/90">
             释放以上传到 {cwd || "远程"}
@@ -747,7 +1131,7 @@ function EmptyHint({ icon, text }: { icon: string; text: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-ink-500 dark:text-ink-400">
       <div className="text-2xl opacity-70">{icon}</div>
-      <div className="text-xs">{text}</div>
+      <div className="text-sm">{text}</div>
     </div>
   );
 }
@@ -759,6 +1143,7 @@ function PathBar({
   onNav,
   disabled = false,
   isLocal = false,
+  extra,
 }: {
   label: string;
   cwd: string;
@@ -766,10 +1151,11 @@ function PathBar({
   onNav: (p: string) => void;
   disabled?: boolean;
   isLocal?: boolean;
+  extra?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-1.5 border-b border-black/[0.06] px-2 py-1 text-[11px] dark:border-white/[0.06]">
-      <span className="rounded-md bg-black/[0.06] px-1.5 py-[1px] text-[10px] font-medium text-ink-600 dark:bg-white/[0.08] dark:text-ink-300">
+    <div className="flex items-center gap-1.5 border-b border-black/[0.06] px-2 py-1 text-xs dark:border-white/[0.06]">
+      <span className="rounded-md bg-black/[0.06] px-1.5 py-[1px] text-[11px] font-medium text-ink-600 dark:bg-white/[0.08] dark:text-ink-300">
         {label}
       </span>
       <button
@@ -783,6 +1169,7 @@ function PathBar({
         </svg>
       </button>
       <Breadcrumbs cwd={cwd} isLocal={isLocal} onNav={onNav} />
+      {extra}
     </div>
   );
 }
@@ -795,14 +1182,14 @@ function TransferBar({
   onClear: () => void;
 }) {
   return (
-    <div className="max-h-32 overflow-auto border-t border-black/[0.06] px-3 py-1.5 text-[11px] dark:border-white/[0.06]">
+    <div className="max-h-32 overflow-auto border-t border-black/[0.06] px-3 py-1.5 text-xs dark:border-white/[0.06]">
       <div className="mb-1 flex items-center justify-between">
         <div className="flex items-center gap-1.5 font-medium text-ink-700 dark:text-ink-200">
           <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M4 10h12M4 10l4-4M4 10l4 4M16 10l-4 4M16 10l-4-4" />
           </svg>
           <span>传输队列</span>
-          <span className="rounded-full bg-black/5 px-1.5 py-[1px] text-[9px] dark:bg-white/10">
+          <span className="rounded-full bg-black/5 px-1.5 py-[1px] text-[10px] dark:bg-white/10">
             {transfers.length}
           </span>
         </div>

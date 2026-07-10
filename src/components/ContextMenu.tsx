@@ -53,8 +53,8 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
               item.onClick();
               onClose();
             }}
-            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors disabled:opacity-40 ${
-              item.danger
+            className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors disabled:opacity-40 ${
+               item.danger
                 ? "text-red-500 hover:bg-red-500/10"
                 : "text-ink-800 hover:bg-brand-500/10 hover:text-brand-500 dark:text-ink-100"
             }`}

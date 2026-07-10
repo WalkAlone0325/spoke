@@ -33,9 +33,15 @@ pub fn run() {
             commands::filesystem::sftp_remove,
             commands::filesystem::sftp_rename,
             commands::filesystem::sftp_upload,
+            commands::filesystem::sftp_upload_dir,
             commands::filesystem::sftp_download,
             commands::filesystem::local_list,
             commands::filesystem::local_home,
+            commands::filesystem::local_is_dir,
+            commands::secrets::secret_save,
+            commands::secrets::secret_get,
+            commands::secrets::secret_delete,
+            commands::ssh_config::import_ssh_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

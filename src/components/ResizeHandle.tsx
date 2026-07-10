@@ -51,8 +51,8 @@ export function ResizeHandle({ orientation, onDrag, className = "" }: Props) {
 
   const isVertical = orientation === "vertical";
   const wrapCls = isVertical
-    ? "w-1.5 h-full cursor-col-resize"
-    : "h-1.5 w-full cursor-row-resize";
+    ? "w-1 h-full cursor-col-resize"
+    : "h-1 w-full cursor-row-resize";
   const barCls = isVertical
     ? "h-8 w-[3px]"
     : "w-8 h-[3px]";

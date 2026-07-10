@@ -12,12 +12,27 @@ import { useAppStore, type TerminalTab } from "../store/appStore";
 import {
   loadServers,
   saveServer,
+  type ProxyJumpConfig,
   type StoredAuth,
   type StoredServer,
 } from "../store/settings";
+import { saveSecret, getSecret } from "../store/secrets";
 import { sshConnect, sshTestConnect, type ConnectPayload } from "../hooks/useSshSession";
 
 type AuthKind = "password" | "privateKey";
+
+interface ProxyJumpForm {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  authKind: AuthKind;
+  password: string;
+  keyPath: string;
+  passphrase: string;
+}
+
+type ProxyKindForm = "none" | "http" | "socks5";
 
 interface FormState {
   name: string;
@@ -29,7 +44,23 @@ interface FormState {
   password: string;
   keyPath: string;
   passphrase: string;
+  proxyJump: ProxyJumpForm;
+  proxyKind: ProxyKindForm;
+  proxyHost: string;
+  proxyPort: number;
+  showAdvanced: boolean;
 }
+
+const emptyJump: ProxyJumpForm = {
+  enabled: false,
+  host: "",
+  port: 22,
+  username: "root",
+  authKind: "password",
+  password: "",
+  keyPath: "",
+  passphrase: "",
+};
 
 const empty: FormState = {
   name: "",
@@ -41,45 +72,87 @@ const empty: FormState = {
   password: "",
   keyPath: "",
   passphrase: "",
+  proxyJump: { ...emptyJump },
+  proxyKind: "none",
+  proxyHost: "",
+  proxyPort: 1080,
+  showAdvanced: false,
 };
 
 function toStoredAuth(f: FormState): StoredAuth {
-  if (f.authKind === "password") return { kind: "password", password: f.password };
+  if (f.authKind === "password") return { kind: "password" };
   return {
     kind: "privateKey",
     path: f.keyPath,
-    passphrase: f.passphrase || undefined,
   };
 }
 
-function fromServer(s: StoredServer): FormState {
-  if (s.auth.kind === "password") {
-    return {
-      name: s.name,
-      host: s.host,
-      port: s.port,
-      username: s.username,
-      groupId: s.groupId ?? "prod",
-      authKind: "password",
-      password: s.auth.password,
-      keyPath: "",
-      passphrase: "",
-    };
+async function fromServer(s: StoredServer): Promise<FormState> {
+  let password = "";
+  let passphrase = "";
+
+  if (s.passwordRef) {
+    try { password = await getSecret(s.passwordRef); } catch { password = ""; }
+  } else if (s.auth.kind === "password" && s.auth.password) {
+    password = s.auth.password;
   }
-  if (s.auth.kind === "privateKey") {
-    return {
-      name: s.name,
-      host: s.host,
-      port: s.port,
-      username: s.username,
-      groupId: s.groupId ?? "prod",
-      authKind: "privateKey",
-      password: "",
-      keyPath: s.auth.path,
-      passphrase: s.auth.passphrase ?? "",
-    };
+
+  if (s.passphraseRef) {
+    try { passphrase = await getSecret(s.passphraseRef); } catch { passphrase = ""; }
+  } else if (s.auth.kind === "privateKey" && s.auth.passphrase) {
+    passphrase = s.auth.passphrase;
   }
-  return { ...empty, name: s.name, host: s.host, port: s.port, username: s.username };
+
+  let jumpPwd = "";
+  let jumpPp = "";
+  if (s.proxyJump) {
+    if (s.proxyJump.passwordRef) {
+      try { jumpPwd = await getSecret(s.proxyJump.passwordRef); } catch { jumpPwd = ""; }
+    } else if (s.proxyJump.auth.kind === "password" && s.proxyJump.auth.password) {
+      jumpPwd = s.proxyJump.auth.password;
+    }
+    if (s.proxyJump.passphraseRef) {
+      try { jumpPp = await getSecret(s.proxyJump.passphraseRef); } catch { jumpPp = ""; }
+    } else if (s.proxyJump.auth.kind === "privateKey" && s.proxyJump.auth.passphrase) {
+      jumpPp = s.proxyJump.auth.passphrase;
+    }
+  }
+
+  const proxyKind: ProxyKindForm = s.proxy?.kind === "http" ? "http" : s.proxy?.kind === "socks5" ? "socks5" : "none";
+  const proxyHost = s.proxy?.kind === "http" || s.proxy?.kind === "socks5" ? s.proxy.host : "";
+  const proxyPort = s.proxy?.kind === "http" || s.proxy?.kind === "socks5" ? s.proxy.port : 1080;
+
+  const base = s.auth.kind === "password" ? {
+    authKind: "password" as AuthKind, password, keyPath: "", passphrase: "",
+  } : s.auth.kind === "privateKey" ? {
+    authKind: "privateKey" as AuthKind, password: "", keyPath: s.auth.path, passphrase,
+  } : {
+    authKind: "password" as AuthKind, password, keyPath: "", passphrase: "",
+  };
+
+  return {
+    ...empty,
+    name: s.name,
+    host: s.host,
+    port: s.port,
+    username: s.username,
+    groupId: s.groupId ?? "prod",
+    ...base,
+    proxyJump: {
+      enabled: !!s.proxyJump,
+      host: s.proxyJump?.host ?? "",
+      port: s.proxyJump?.port ?? 22,
+      username: s.proxyJump?.username ?? "root",
+      authKind: s.proxyJump?.auth.kind === "password" ? "password" : "privateKey",
+      password: jumpPwd,
+      keyPath: s.proxyJump?.auth.kind === "privateKey" ? s.proxyJump.auth.path : "",
+      passphrase: jumpPp,
+    },
+    proxyKind,
+    proxyHost,
+    proxyPort,
+    showAdvanced: !!s.proxyJump || proxyKind !== "none",
+  };
 }
 
 export function ConnectDialog() {
@@ -108,8 +181,11 @@ export function ConnectDialog() {
     setTestResult(null);
     setShowPassword(false);
     setShowPassphrase(false);
+    setForm(empty);
     const editing = editingId ? servers.find((s) => s.id === editingId) : null;
-    setForm(editing ? fromServer(editing) : empty);
+    if (editing) {
+      fromServer(editing).then(setForm).catch(console.error);
+    }
   }, [open, editingId, servers]);
 
   const patch = (p: Partial<FormState>) => {
@@ -117,25 +193,52 @@ export function ConnectDialog() {
     setTestResult(null);
   };
 
-  const buildPayload = (): ConnectPayload => ({
-    host: form.host,
-    port: form.port,
-    username: form.username,
-    auth:
-      form.authKind === "password"
-        ? { kind: "password", password: form.password }
-        : {
-            kind: "privateKey",
-            path: form.keyPath,
-            passphrase: form.passphrase || undefined,
-          },
-  });
+  const buildPayload = (): ConnectPayload => {
+    const proxyJump = form.proxyJump.enabled
+      ? {
+          host: form.proxyJump.host,
+          port: form.proxyJump.port,
+          username: form.proxyJump.username,
+          auth: form.proxyJump.authKind === "password"
+            ? { kind: "password" as const, password: form.proxyJump.password }
+            : { kind: "privateKey" as const, path: form.proxyJump.keyPath, passphrase: form.proxyJump.passphrase || undefined },
+        }
+      : undefined;
+
+    const proxy = form.proxyKind === "http"
+      ? { kind: "http" as const, host: form.proxyHost, port: form.proxyPort }
+      : form.proxyKind === "socks5"
+      ? { kind: "socks5" as const, host: form.proxyHost, port: form.proxyPort }
+      : undefined;
+
+    return {
+      host: form.host,
+      port: form.port,
+      username: form.username,
+      auth:
+        form.authKind === "password"
+          ? { kind: "password", password: form.password }
+          : {
+              kind: "privateKey",
+              path: form.keyPath,
+              passphrase: form.passphrase || undefined,
+            },
+      proxyJump,
+      proxy,
+    };
+  };
 
   const validate = (): string | null => {
     if (!form.host) return "请填写主机";
     if (!form.username) return "请填写用户名";
     if (form.authKind === "password" && !form.password) return "请填写密码";
     if (form.authKind === "privateKey" && !form.keyPath) return "请填写私钥路径";
+    if (form.proxyJump.enabled) {
+      if (!form.proxyJump.host) return "请填写跳板机主机";
+      if (!form.proxyJump.username) return "请填写跳板机用户名";
+      if (form.proxyJump.authKind === "password" && !form.proxyJump.password) return "请填写跳板机密码";
+      if (form.proxyJump.authKind === "privateKey" && !form.proxyJump.keyPath) return "请填写跳板机私钥路径";
+    }
     return null;
   };
 
@@ -160,17 +263,57 @@ export function ConnectDialog() {
 
   const save = async () => {
     const now = Date.now();
+    const id = editingId ?? crypto.randomUUID();
+    const auth = toStoredAuth(form);
     const stored: StoredServer = {
-      id: editingId ?? crypto.randomUUID(),
+      id,
       name: form.name || `${form.username}@${form.host}`,
       host: form.host,
       port: form.port,
       username: form.username,
       groupId: form.groupId,
-      auth: toStoredAuth(form),
+      auth,
       createdAt: now,
       updatedAt: now,
     };
+
+    if (form.authKind === "password" && form.password) {
+      await saveSecret(id, form.password);
+      stored.passwordRef = id;
+    } else if (form.authKind === "privateKey" && form.passphrase) {
+      const ref = `${id}_passphrase`;
+      await saveSecret(ref, form.passphrase);
+      stored.passphraseRef = ref;
+    }
+
+    if (form.proxyJump.enabled) {
+      const jAuth: StoredAuth = form.proxyJump.authKind === "password"
+        ? { kind: "password" }
+        : { kind: "privateKey", path: form.proxyJump.keyPath };
+      const jump: ProxyJumpConfig = {
+        host: form.proxyJump.host,
+        port: form.proxyJump.port,
+        username: form.proxyJump.username,
+        auth: jAuth,
+      };
+      if (form.proxyJump.authKind === "password" && form.proxyJump.password) {
+        const ref = `${id}_jump_pwd`;
+        await saveSecret(ref, form.proxyJump.password);
+        jump.passwordRef = ref;
+      } else if (form.proxyJump.authKind === "privateKey" && form.proxyJump.passphrase) {
+        const ref = `${id}_jump_pp`;
+        await saveSecret(ref, form.proxyJump.passphrase);
+        jump.passphraseRef = ref;
+      }
+      stored.proxyJump = jump;
+    }
+
+    if (form.proxyKind === "http") {
+      stored.proxy = { kind: "http", host: form.proxyHost, port: form.proxyPort };
+    } else if (form.proxyKind === "socks5") {
+      stored.proxy = { kind: "socks5", host: form.proxyHost, port: form.proxyPort };
+    }
+
     const list = await saveServer(stored);
     setServers(list);
     return stored;
@@ -211,18 +354,34 @@ export function ConnectDialog() {
       };
       addTab(tab);
 
+      const auth = form.authKind === "password"
+        ? { kind: "password" as const, password: form.password }
+        : { kind: "privateKey" as const, path: form.keyPath, passphrase: form.passphrase || undefined };
+
+      const proxyJump = form.proxyJump.enabled
+        ? {
+            host: form.proxyJump.host,
+            port: form.proxyJump.port,
+            username: form.proxyJump.username,
+            auth: form.proxyJump.authKind === "password"
+              ? { kind: "password" as const, password: form.proxyJump.password }
+              : { kind: "privateKey" as const, path: form.proxyJump.keyPath, passphrase: form.proxyJump.passphrase || undefined },
+          }
+        : undefined;
+
+      const proxy = form.proxyKind === "http"
+        ? { kind: "http" as const, host: form.proxyHost, port: form.proxyPort }
+        : form.proxyKind === "socks5"
+        ? { kind: "socks5" as const, host: form.proxyHost, port: form.proxyPort }
+        : undefined;
+
       const sessionId = await sshConnect({
-        host: stored.host,
-        port: stored.port,
-        username: stored.username,
-        auth:
-          stored.auth.kind === "password"
-            ? { kind: "password", password: stored.auth.password }
-            : {
-                kind: "privateKey",
-                path: (stored.auth as any).path,
-                passphrase: (stored.auth as any).passphrase,
-              },
+        host: form.host,
+        port: form.port,
+        username: form.username,
+        auth,
+        proxyJump,
+        proxy,
         term: "xterm-256color",
         cols: 80,
         rows: 24,
@@ -241,11 +400,12 @@ export function ConnectDialog() {
     <Dialog open={open} onClose={close} className="relative z-50">
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" aria-hidden />
       <div className="fixed inset-0 grid place-items-center p-4">
-        <DialogPanel className="w-full max-w-md rounded-xl border border-black/5 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-ink-800">
-          <DialogTitle className="mb-4 text-base font-semibold">
+        <DialogPanel className="flex max-h-[90vh] w-full max-w-md flex-col rounded-xl border border-black/5 bg-white shadow-2xl dark:border-white/10 dark:bg-ink-800">
+          <DialogTitle className="shrink-0 px-5 pb-0 pt-5 text-base font-semibold">
             {editingId ? "编辑连接" : "新建连接"}
           </DialogTitle>
 
+          <div className="flex-1 overflow-y-auto px-5 py-4">
           <div className="grid grid-cols-4 gap-3 text-sm">
             <Field label="名称" span={4}>
               <input
@@ -394,7 +554,159 @@ export function ConnectDialog() {
                 </Field>
               </>
             )}
-          </div>
+
+            <div className="col-span-4 mt-2">
+              <button
+                type="button"
+                onClick={() => patch({ showAdvanced: !form.showAdvanced })}
+                className="flex items-center gap-1.5 text-xs text-ink-500 hover:text-ink-700 dark:text-ink-400 dark:hover:text-ink-200"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  className={`h-3 w-3 transition-transform ${form.showAdvanced ? "rotate-90" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m7 4 6 6-6 6" />
+                </svg>
+                高级配置
+              </button>
+
+              {form.showAdvanced && (
+                <div className="mt-3 space-y-3 rounded-lg border border-black/10 p-3 dark:border-white/10">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="proxyJump"
+                      checked={form.proxyJump.enabled}
+                      onChange={(e) => patch({ proxyJump: { ...form.proxyJump, enabled: e.target.checked } })}
+                      className="h-3.5 w-3.5 rounded border-black/30 accent-brand-500"
+                    />
+                    <label htmlFor="proxyJump" className="text-xs font-medium">跳板机 (ProxyJump)</label>
+                  </div>
+
+                  {form.proxyJump.enabled && (
+                    <div className="grid grid-cols-4 gap-2 pl-4 text-xs">
+                      <Field label="跳板主机" span={3}>
+                        <input className={inputCls} value={form.proxyJump.host} onChange={(e) => patch({ proxyJump: { ...form.proxyJump, host: e.target.value } })} placeholder="jump.example.com" />
+                      </Field>
+                      <Field label="端口" span={1}>
+                        <input type="number" className={inputCls} value={form.proxyJump.port} onChange={(e) => patch({ proxyJump: { ...form.proxyJump, port: Number(e.target.value) || 22 } })} />
+                      </Field>
+                      <Field label="跳板用户" span={4}>
+                        <input className={inputCls} value={form.proxyJump.username} onChange={(e) => patch({ proxyJump: { ...form.proxyJump, username: e.target.value } })} />
+                      </Field>
+                      <Field label="认证方式" span={4}>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["password", "privateKey"] as const).map((opt) => {
+                            const active = form.proxyJump.authKind === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => patch({ proxyJump: { ...form.proxyJump, authKind: opt } })}
+                                className={`h-8 rounded-md border text-[11px] font-medium transition-colors ${
+                                  active
+                                    ? "border-brand-500 bg-brand-500/10 text-brand-500"
+                                    : "border-black/10 text-ink-600 hover:border-black/20 dark:border-white/10 dark:text-ink-100/70"
+                                }`}
+                              >
+                                {opt === "password" ? "密码" : "私钥"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </Field>
+                      {form.proxyJump.authKind === "password" ? (
+                        <Field label="跳板密码" span={4}>
+                          <input type="password" className={inputCls} value={form.proxyJump.password} onChange={(e) => patch({ proxyJump: { ...form.proxyJump, password: e.target.value } })} />
+                        </Field>
+                      ) : (
+                        <Field label="跳板私钥路径" span={4}>
+                          <input className={inputCls} value={form.proxyJump.keyPath} onChange={(e) => patch({ proxyJump: { ...form.proxyJump, keyPath: e.target.value } })} placeholder="~/.ssh/id_ed25519" />
+                        </Field>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="border-t border-black/5 pt-3 dark:border-white/5">
+                    <div className="mb-2 text-xs font-medium">代理 (HTTP / SOCKS5)</div>
+                    <div className="grid grid-cols-4 gap-2 text-xs">
+                      <Field label="类型" span={1}>
+                        <Listbox
+                          value={form.proxyKind}
+                          onChange={(v) => patch({ proxyKind: v })}
+                        >
+                          <div className="relative">
+                            <ListboxButton
+                              className={`${inputCls} flex items-center justify-between text-left data-[open]:border-brand-500`}
+                            >
+                              <span>{form.proxyKind === "none" ? "无" : form.proxyKind === "http" ? "HTTP" : "SOCKS5"}</span>
+                              <svg
+                                viewBox="0 0 20 20"
+                                className="h-3 w-3 text-ink-600/60 transition-transform data-[open]:rotate-180 dark:text-ink-100/50"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="m5 7.5 5 5 5-5" />
+                              </svg>
+                            </ListboxButton>
+                            <ListboxOptions
+                              anchor="bottom start"
+                              transition
+                              className="z-[60] mt-1 min-w-24 origin-top rounded-lg border border-black/10 bg-white/95 p-1 shadow-xl backdrop-blur transition duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0 dark:border-white/10 dark:bg-ink-800/95"
+                            >
+                              {[
+                                { value: "none", label: "无" },
+                                { value: "http", label: "HTTP" },
+                                { value: "socks5", label: "SOCKS5" },
+                              ].map((opt) => (
+                                <ListboxOption
+                                  key={opt.value}
+                                  value={opt.value}
+                                  className="group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-800 transition-colors data-[focus]:bg-brand-500/10 data-[selected]:text-brand-500 dark:text-ink-100"
+                                >
+                                  <span className="h-1.5 w-1.5 rounded-full bg-ink-600/40 group-data-[selected]:bg-linear-to-r group-data-[selected]:from-brand-500 group-data-[selected]:to-accent-500" />
+                                  <span className="flex-1 truncate">{opt.label}</span>
+                                  <svg
+                                    viewBox="0 0 20 20"
+                                    className="hidden h-3 w-3 text-brand-500 group-data-[selected]:block"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="m4 10 4 4 8-8" />
+                                  </svg>
+                                </ListboxOption>
+                              ))}
+                            </ListboxOptions>
+                          </div>
+                        </Listbox>
+                      </Field>
+                      {form.proxyKind !== "none" && (
+                        <>
+                          <Field label="代理主机" span={2}>
+                            <input className={inputCls} value={form.proxyHost} onChange={(e) => patch({ proxyHost: e.target.value })} placeholder="127.0.0.1" />
+                          </Field>
+                          <Field label="端口" span={1}>
+                            <input type="number" className={inputCls} value={form.proxyPort} onChange={(e) => patch({ proxyPort: Number(e.target.value) || 1080 })} />
+                          </Field>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            </div>
 
           {error && (
             <div className="mt-3 rounded-md bg-red-500/10 px-2 py-1.5 text-xs text-red-500">
@@ -414,8 +726,10 @@ export function ConnectDialog() {
               <span className="flex-1 break-all">{testResult.msg}</span>
             </div>
           )}
+          </div>
 
-          <div className="mt-5 flex items-center justify-between gap-2">
+          <div className="shrink-0 border-t border-black/5 px-5 py-3 dark:border-white/5">
+          <div className="flex items-center justify-between gap-2">
             <button
               disabled={busy || testing}
               onClick={onTest}
@@ -460,6 +774,7 @@ export function ConnectDialog() {
               </button>
             </div>
           </div>
+        </div>
         </DialogPanel>
       </div>
     </Dialog>

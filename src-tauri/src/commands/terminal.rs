@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::ssh::{AuthMethod, ConnectParams, SessionEvent, SessionId, SessionManager, SshSession};
+use crate::ssh::{AuthMethod, ConnectParams, ProxyJump, ProxyKind, SessionEvent, SessionId, SessionManager, SshSession};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -34,6 +34,45 @@ impl From<AuthPayload> for AuthMethod {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyJumpPayload {
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    pub username: String,
+    pub auth: AuthPayload,
+}
+
+impl From<ProxyJumpPayload> for ProxyJump {
+    fn from(p: ProxyJumpPayload) -> Self {
+        ProxyJump {
+            host: p.host,
+            port: p.port,
+            username: p.username,
+            auth: p.auth.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProxyKindPayload {
+    #[serde(rename_all = "camelCase")]
+    Http { host: String, port: u16 },
+    #[serde(rename_all = "camelCase")]
+    Socks5 { host: String, port: u16 },
+}
+
+impl From<ProxyKindPayload> for ProxyKind {
+    fn from(p: ProxyKindPayload) -> Self {
+        match p {
+            ProxyKindPayload::Http { host, port } => ProxyKind::Http { host, port },
+            ProxyKindPayload::Socks5 { host, port } => ProxyKind::Socks5 { host, port },
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectPayload {
@@ -48,20 +87,14 @@ pub struct ConnectPayload {
     pub cols: u32,
     #[serde(default = "default_rows")]
     pub rows: u32,
+    pub proxy_jump: Option<ProxyJumpPayload>,
+    pub proxy: Option<ProxyKindPayload>,
 }
 
-fn default_port() -> u16 {
-    22
-}
-fn default_term() -> String {
-    "xterm-256color".to_string()
-}
-fn default_cols() -> u32 {
-    80
-}
-fn default_rows() -> u32 {
-    24
-}
+fn default_port() -> u16 { 22 }
+fn default_term() -> String { "xterm-256color".to_string() }
+fn default_cols() -> u32 { 80 }
+fn default_rows() -> u32 { 24 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +112,8 @@ pub async fn ssh_test_connect(payload: ConnectPayload) -> Result<String, String>
         term: payload.term,
         cols: payload.cols,
         rows: payload.rows,
+        proxy_jump: payload.proxy_jump.map(|j| j.into()),
+        proxy: payload.proxy.map(|p| p.into()),
     };
     SshSession::test_connect(&params)
         .await
@@ -99,6 +134,8 @@ pub async fn ssh_connect(
         term: payload.term,
         cols: payload.cols,
         rows: payload.rows,
+        proxy_jump: payload.proxy_jump.map(|j| j.into()),
+        proxy: payload.proxy.map(|p| p.into()),
     };
     let (id, mut rx) = manager.create(params).await.map_err(|e| e.to_string())?;
 

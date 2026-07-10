@@ -1,14 +1,11 @@
 import { create } from "zustand";
-import type { StoredServer } from "./settings";
+import type { StoredGroup, StoredServer } from "./settings";
 
 export type ThemeMode = "system" | "light" | "dark";
 
 export type ServerConfig = StoredServer;
 
-export interface ServerGroup {
-  id: string;
-  name: string;
-}
+export type ServerGroup = StoredGroup;
 
 export interface TerminalTab {
   id: string;
@@ -36,6 +33,7 @@ interface AppState {
   setThemeMode: (mode: ThemeMode) => void;
   setIsDark: (dark: boolean) => void;
   setServers: (list: ServerConfig[]) => void;
+  setGroups: (list: ServerGroup[]) => void;
   addTab: (tab: TerminalTab) => void;
   updateTab: (id: string, patch: Partial<TerminalTab>) => void;
   closeTab: (id: string) => void;
@@ -52,10 +50,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   themeMode: "system",
   isDark: false,
-  groups: [
-    { id: "prod", name: "生产环境" },
-    { id: "test", name: "测试环境" },
-  ],
+  groups: [],
   servers: [],
   tabs: [],
   activeTabId: null,
@@ -70,6 +65,7 @@ export const useAppStore = create<AppState>((set) => ({
   setThemeMode: (mode) => set({ themeMode: mode }),
   setIsDark: (dark) => set({ isDark: dark }),
   setServers: (list) => set({ servers: list }),
+  setGroups: (list) => set({ groups: list }),
   addTab: (tab) =>
     set((s) => ({
       tabs: [...s.tabs, tab],

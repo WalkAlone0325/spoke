@@ -232,6 +232,17 @@ impl SftpClient {
             .map_err(|e| SshError::Msg(format!("关闭失败: {e}")))?;
         Ok(total)
     }
+
+    pub async fn ensure_dir(&self, path: &str) -> SshResult<()> {
+        let guard = self.inner.lock().await;
+        if guard.metadata(path.to_string()).await.is_ok() {
+            return Ok(());
+        }
+        guard
+            .create_dir(path.to_string())
+            .await
+            .map_err(|e| SshError::Msg(format!("创建目录失败 {path}: {e}")))
+    }
 }
 
 fn join_path(parent: &str, name: &str) -> String {

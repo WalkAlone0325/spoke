@@ -4,7 +4,6 @@ use russh::client::{self, Config, Handle, Handler};
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, load_secret_key};
 use russh::{ChannelMsg, Disconnect};
 use thiserror::Error;
-use tokio::io::AsyncReadExt;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, interval};
@@ -30,6 +29,20 @@ pub enum SshError {
 pub type SshResult<T> = Result<T, SshError>;
 
 #[derive(Debug, Clone)]
+pub struct ProxyJump {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: AuthMethod,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProxyKind {
+    Http { host: String, port: u16 },
+    Socks5 { host: String, port: u16 },
+}
+
+#[derive(Debug, Clone)]
 pub struct ConnectParams {
     pub host: String,
     pub port: u16,
@@ -38,6 +51,8 @@ pub struct ConnectParams {
     pub term: String,
     pub cols: u32,
     pub rows: u32,
+    pub proxy_jump: Option<ProxyJump>,
+    pub proxy: Option<ProxyKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,38 +100,23 @@ impl SshSession {
             inactivity_timeout: Some(Duration::from_secs(15)),
             ..Config::default()
         });
-        let addr = format!("{}:{}", params.host, params.port);
-        let mut handle = tokio::time::timeout(
-            Duration::from_secs(10),
-            client::connect(config, addr.as_str(), ClientHandler),
-        )
-        .await
-        .map_err(|_| SshError::Msg("连接超时（10s）".into()))?
-        .map_err(SshError::Russh)?;
 
-        let authed = match &params.auth {
-            AuthMethod::Password(pwd) => handle
-                .authenticate_password(params.username.clone(), pwd.clone())
-                .await
-                .map(|r| r.success())
-                .map_err(SshError::Russh)?,
-            AuthMethod::PrivateKey { path, passphrase } => {
-                let key = load_secret_key(path, passphrase.as_deref())
-                    .map_err(SshError::Key)?;
-                Self::auth_key(&mut handle, &params.username, key).await?
-            }
-            AuthMethod::PrivateKeyText { pem, passphrase } => {
-                let key = PrivateKey::from_openssh(pem.as_bytes())
-                    .map_err(|e| SshError::Msg(format!("解析私钥失败: {e}")))?;
-                let key = if let Some(pp) = passphrase {
-                    key.decrypt(pp.as_bytes())
-                        .map_err(|e| SshError::Msg(format!("私钥解密失败: {e}")))?
-                } else {
-                    key
-                };
-                Self::auth_key(&mut handle, &params.username, key).await?
-            }
+        let mut handle = if let Some(jump) = &params.proxy_jump {
+            Self::connect_via_jump(config, params, jump).await?
+        } else if let Some(proxy) = &params.proxy {
+            Self::connect_via_proxy(config, params, proxy).await?
+        } else {
+            let addr = format!("{}:{}", params.host, params.port);
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                client::connect(config, addr.as_str(), ClientHandler),
+            )
+            .await
+            .map_err(|_| SshError::Msg("连接超时（10s）".into()))?
+            .map_err(SshError::Russh)?
         };
+
+        let authed = authenticate_handle(&mut handle, &params.username, &params.auth).await?;
         if !authed {
             let _ = handle
                 .disconnect(Disconnect::ByApplication, "test-fail", "en-US")
@@ -142,34 +142,18 @@ impl SshSession {
             ..Config::default()
         });
 
-        let addr = format!("{}:{}", params.host, params.port);
-        let mut handle = client::connect(config, addr.as_str(), ClientHandler)
-            .await
-            .map_err(SshError::Russh)?;
-
-        let authed = match &params.auth {
-            AuthMethod::Password(pwd) => handle
-                .authenticate_password(params.username.clone(), pwd.clone())
+        let mut handle = if let Some(jump) = params.proxy_jump.clone() {
+            Self::connect_via_jump(config, &params, &jump).await?
+        } else if let Some(proxy) = params.proxy.clone() {
+            Self::connect_via_proxy(config, &params, &proxy).await?
+        } else {
+            let addr = format!("{}:{}", params.host, params.port);
+            client::connect(config, addr.as_str(), ClientHandler)
                 .await
-                .map(|r| r.success())
-                .map_err(SshError::Russh)?,
-            AuthMethod::PrivateKey { path, passphrase } => {
-                let key = load_secret_key(path, passphrase.as_deref())
-                    .map_err(SshError::Key)?;
-                Self::auth_key(&mut handle, &params.username, key).await?
-            }
-            AuthMethod::PrivateKeyText { pem, passphrase } => {
-                let key = PrivateKey::from_openssh(pem.as_bytes())
-                    .map_err(|e| SshError::Msg(format!("解析私钥失败: {e}")))?;
-                let key = if let Some(pp) = passphrase {
-                    key.decrypt(pp.as_bytes())
-                        .map_err(|e| SshError::Msg(format!("私钥解密失败: {e}")))?
-                } else {
-                    key
-                };
-                Self::auth_key(&mut handle, &params.username, key).await?
-            }
+                .map_err(SshError::Russh)?
         };
+
+        let authed = authenticate_handle(&mut handle, &params.username, &params.auth).await?;
         if !authed {
             return Err(SshError::AuthFailed);
         }
@@ -252,10 +236,7 @@ impl SshSession {
             loop {
                 tick.tick().await;
                 let guard = handle_ka.lock().await;
-                if let Err(e) = guard
-                    .send_keepalive(false)
-                    .await
-                {
+                if let Err(e) = guard.send_keepalive(false).await {
                     let _ = event_tx_ka
                         .send(SessionEvent::Error(format!("keepalive: {e}")))
                         .await;
@@ -272,18 +253,168 @@ impl SshSession {
         })
     }
 
-    async fn auth_key(
-        handle: &mut Handle<ClientHandler>,
-        user: &str,
-        key: PrivateKey,
-    ) -> SshResult<bool> {
-        let hash = hash_alg_for(&key);
-        let with_alg = PrivateKeyWithHashAlg::new(Arc::new(key), hash);
-        Ok(handle
-            .authenticate_publickey(user.to_string(), with_alg)
+    async fn connect_via_jump(
+        config: Arc<Config>,
+        params: &ConnectParams,
+        jump: &ProxyJump,
+    ) -> SshResult<Handle<ClientHandler>> {
+        let jump_addr = format!("{}:{}", jump.host, jump.port);
+        let mut jump_handle = client::connect(config.clone(), jump_addr.as_str(), ClientHandler)
             .await
-            .map_err(SshError::Russh)?
-            .success())
+            .map_err(|e| SshError::Msg(format!("跳板机连接失败: {e}")))?;
+
+        let jump_authed = authenticate_handle(&mut jump_handle, &jump.username, &jump.auth).await?;
+        if !jump_authed {
+            return Err(SshError::Msg("跳板机认证失败".into()));
+        }
+
+        let direct = jump_handle
+            .channel_open_direct_tcpip::<String, String>(
+                params.host.clone(),
+                params.port as u32,
+                "127.0.0.1".to_string(),
+                0u32,
+            )
+            .await
+            .map_err(|e| SshError::Msg(format!("跳板机端口转发失败: {e}")))?;
+
+        let stream = direct.into_stream();
+
+        client::connect_stream(config, stream, ClientHandler)
+            .await
+            .map_err(|e| SshError::Msg(format!("通过跳板机连接目标失败: {e}")))
+    }
+
+    async fn connect_via_proxy(
+        config: Arc<Config>,
+        params: &ConnectParams,
+        proxy: &ProxyKind,
+    ) -> SshResult<Handle<ClientHandler>> {
+        let stream = match proxy {
+            ProxyKind::Http { host, port } => {
+                let addr = format!("{host}:{port}");
+                let mut stream = tokio::net::TcpStream::connect(&addr)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("HTTP 代理连接失败: {e}")))?;
+
+                let connect_req = format!(
+                    "CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
+                    params.host, params.port, params.host, params.port
+                );
+                use tokio::io::AsyncWriteExt;
+                stream.write_all(connect_req.as_bytes()).await.map_err(|e| {
+                    SshError::Msg(format!("HTTP 代理 CONNECT 请求失败: {e}"))
+                })?;
+
+                use tokio::io::AsyncBufReadExt;
+                let mut reader = tokio::io::BufReader::new(&mut stream);
+                let mut response = String::new();
+                reader
+                    .read_line(&mut response)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("HTTP 代理响应读取失败: {e}")))?;
+
+                if !response.contains("200") {
+                    return Err(SshError::Msg(format!(
+                        "HTTP 代理 CONNECT 失败: {response}"
+                    )));
+                }
+                let mut rest = String::new();
+                reader
+                    .read_line(&mut rest)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("HTTP 代理响应读取失败: {e}")))?;
+
+                drop(reader);
+                stream
+            }
+            ProxyKind::Socks5 { host, port } => {
+                let addr = format!("{host}:{port}");
+                let mut stream = tokio::net::TcpStream::connect(&addr)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 代理连接失败: {e}")))?;
+
+                use tokio::io::AsyncWriteExt;
+                stream
+                    .write_all(&[0x05, 0x01, 0x00])
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 握手失败: {e}")))?;
+
+                use tokio::io::AsyncReadExt;
+                let mut auth = [0u8; 2];
+                stream
+                    .read_exact(&mut auth)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 握手响应失败: {e}")))?;
+                if auth[1] != 0x00 {
+                    return Err(SshError::Msg("SOCKS5 代理需要认证（暂不支持）".into()));
+                }
+
+                let addr_port = format!("{}:{}", params.host, params.port);
+                let atype = if addr_port.contains(':') {
+                    // IPv6
+                    return Err(SshError::Msg("SOCKS5 IPv6 暂不支持".into()));
+                } else {
+                    // Try to resolve as IPv4
+                    match params.host.parse::<std::net::Ipv4Addr>() {
+                        Ok(_) => 0x01u8,
+                        Err(_) => 0x03u8,
+                    }
+                };
+
+                let mut req = vec![0x05, 0x01, 0x00, atype];
+                if atype == 0x03 {
+                    let bytes = params.host.as_bytes();
+                    req.push(bytes.len() as u8);
+                    req.extend_from_slice(bytes);
+                } else {
+                    for octet in params.host.split('.') {
+                        req.push(octet.parse::<u8>().unwrap_or(0));
+                    }
+                }
+                req.extend_from_slice(&(params.port as u16).to_be_bytes());
+
+                stream
+                    .write_all(&req)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 请求失败: {e}")))?;
+
+                let mut resp = [0u8; 4];
+                stream
+                    .read_exact(&mut resp)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 响应失败: {e}")))?;
+                if resp[1] != 0x00 {
+                    return Err(SshError::Msg(format!(
+                        "SOCKS5 连接被拒绝: 错误码 {}",
+                        resp[1]
+                    )));
+                }
+                let rest_len = match resp[3] {
+                    0x01 => 4 + 2,
+                    0x03 => {
+                        let mut len = [0u8];
+                        stream.read_exact(&mut len).await.map_err(|e| {
+                            SshError::Msg(format!("SOCKS5 读取地址长度失败: {e}"))
+                        })?;
+                        len[0] as usize + 2
+                    }
+                    0x04 => 16 + 2,
+                    _ => return Err(SshError::Msg(format!("SOCKS5 未知 ATYP: {}", resp[3]))),
+                };
+                let mut _rest = vec![0u8; rest_len];
+                stream
+                    .read_exact(&mut _rest)
+                    .await
+                    .map_err(|e| SshError::Msg(format!("SOCKS5 读取地址失败: {e}")))?;
+
+                stream
+            }
+        };
+
+        client::connect_stream(config, stream, ClientHandler)
+            .await
+            .map_err(|e| SshError::Msg(format!("通过代理连接失败: {e}")))
     }
 
     pub async fn send_data(&self, data: Vec<u8>) -> SshResult<()> {
@@ -314,10 +445,48 @@ impl SshSession {
     }
 }
 
-#[allow(dead_code)]
-async fn drain<R: AsyncReadExt + Unpin>(mut r: R) {
-    let mut buf = [0u8; 1024];
-    let _ = r.read(&mut buf).await;
+async fn authenticate_handle(
+    handle: &mut Handle<ClientHandler>,
+    username: &str,
+    auth: &AuthMethod,
+) -> SshResult<bool> {
+    let authed = match auth {
+        AuthMethod::Password(pwd) => handle
+            .authenticate_password(username.to_string(), pwd.clone())
+            .await
+            .map(|r| r.success())
+            .map_err(SshError::Russh)?,
+        AuthMethod::PrivateKey { path, passphrase } => {
+            let key = load_secret_key(path, passphrase.as_deref()).map_err(SshError::Key)?;
+            auth_key(handle, username, key).await?
+        }
+        AuthMethod::PrivateKeyText { pem, passphrase } => {
+            let key = PrivateKey::from_openssh(pem.as_bytes())
+                .map_err(|e| SshError::Msg(format!("解析私钥失败: {e}")))?;
+            let key = if let Some(pp) = passphrase {
+                key.decrypt(pp.as_bytes())
+                    .map_err(|e| SshError::Msg(format!("私钥解密失败: {e}")))?
+            } else {
+                key
+            };
+            auth_key(handle, username, key).await?
+        }
+    };
+    Ok(authed)
+}
+
+async fn auth_key(
+    handle: &mut Handle<ClientHandler>,
+    user: &str,
+    key: PrivateKey,
+) -> SshResult<bool> {
+    let hash = hash_alg_for(&key);
+    let with_alg = PrivateKeyWithHashAlg::new(Arc::new(key), hash);
+    Ok(handle
+        .authenticate_publickey(user.to_string(), with_alg)
+        .await
+        .map_err(SshError::Russh)?
+        .success())
 }
 
 fn hash_alg_for(key: &PrivateKey) -> Option<HashAlg> {

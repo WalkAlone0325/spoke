@@ -7,6 +7,27 @@ export type AuthPayload =
   | { kind: "privateKey"; path: string; passphrase?: string }
   | { kind: "privateKeyText"; pem: string; passphrase?: string };
 
+export interface ProxyJumpPayload {
+  host: string;
+  port?: number;
+  username: string;
+  auth: AuthPayload;
+}
+
+export interface HttpProxyPayload {
+  kind: "http";
+  host: string;
+  port: number;
+}
+
+export interface Socks5ProxyPayload {
+  kind: "socks5";
+  host: string;
+  port: number;
+}
+
+export type ProxyKindPayload = HttpProxyPayload | Socks5ProxyPayload;
+
 export interface ConnectPayload {
   host: string;
   port?: number;
@@ -15,6 +36,8 @@ export interface ConnectPayload {
   term?: string;
   cols?: number;
   rows?: number;
+  proxyJump?: ProxyJumpPayload;
+  proxy?: ProxyKindPayload;
 }
 
 export interface SshSessionApi {

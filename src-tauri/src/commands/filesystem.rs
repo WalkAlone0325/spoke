@@ -46,6 +46,15 @@ pub struct UploadPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UploadDirPayload {
+    pub session_id: SessionId,
+    pub local_dir: String,
+    pub remote_dir: String,
+    pub transfer_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadPayload {
     pub session_id: SessionId,
     pub remote_path: String,
@@ -164,6 +173,109 @@ pub async fn sftp_upload(
 }
 
 #[tauri::command]
+pub async fn sftp_upload_dir(
+    app: AppHandle,
+    manager: State<'_, SessionManager>,
+    payload: UploadDirPayload,
+) -> Result<u64, String> {
+    let sftp = manager
+        .sftp(&payload.session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut files: Vec<(PathBuf, String)> = Vec::new();
+    let mut dirs: Vec<String> = Vec::new();
+    let mut total_size: u64 = 0;
+    collect_dir(
+        &PathBuf::from(&payload.local_dir),
+        &payload.remote_dir,
+        &mut files,
+        &mut dirs,
+        &mut total_size,
+    )
+    .await
+    .map_err(|e| format!("扫描本地目录失败: {e}"))?;
+
+    for dir in &dirs {
+        sftp.ensure_dir(dir).await.map_err(|e| e.to_string())?;
+    }
+
+    let transfer_id = payload.transfer_id.clone();
+    let app_handle = app.clone();
+    let emitted = AtomicU64::new(0);
+    let mut transferred: u64 = 0;
+
+    for (local, remote) in &files {
+        let file = TokioFile::open(local)
+            .await
+            .map_err(|e| format!("打开 {}: {e}", local.display()))?;
+        let reader = BufReader::new(file);
+        let start = transferred;
+        let n = sftp
+            .upload(remote, reader, |cur| {
+                let total_now = start + cur;
+                let last = emitted.load(Ordering::Relaxed);
+                if total_now - last >= 64 * 1024 {
+                    emitted.store(total_now, Ordering::Relaxed);
+                    let _ = app_handle.emit(
+                        "sftp://progress",
+                        TransferProgress {
+                            transfer_id: transfer_id.clone(),
+                            transferred: total_now,
+                            total: Some(total_size),
+                        },
+                    );
+                }
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        transferred += n;
+    }
+    let _ = app.emit(
+        "sftp://progress",
+        TransferProgress {
+            transfer_id: payload.transfer_id,
+            transferred,
+            total: Some(total_size.max(transferred)),
+        },
+    );
+    Ok(transferred)
+}
+
+async fn collect_dir(
+    local: &PathBuf,
+    remote: &str,
+    files: &mut Vec<(PathBuf, String)>,
+    dirs: &mut Vec<String>,
+    total_size: &mut u64,
+) -> std::io::Result<()> {
+    dirs.push(remote.to_string());
+    let mut rd = tokio::fs::read_dir(local).await?;
+    let mut subdirs: Vec<(PathBuf, String)> = Vec::new();
+    while let Some(entry) = rd.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let child_local = entry.path();
+        let child_remote = if remote.ends_with('/') {
+            format!("{remote}{name}")
+        } else {
+            format!("{remote}/{name}")
+        };
+        let ft = entry.file_type().await?;
+        if ft.is_dir() {
+            subdirs.push((child_local, child_remote));
+        } else if ft.is_file() {
+            let meta = entry.metadata().await?;
+            *total_size += meta.len();
+            files.push((child_local, child_remote));
+        }
+    }
+    for (l, r) in subdirs {
+        Box::pin(collect_dir(&l, &r, files, dirs, total_size)).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn sftp_download(
     app: AppHandle,
     manager: State<'_, SessionManager>,
@@ -266,6 +378,14 @@ pub async fn local_list(path: String) -> Result<Vec<LocalEntry>, String> {
 #[tauri::command]
 pub fn local_home() -> Result<String, String> {
     Ok(dirs_local().to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn local_is_dir(path: String) -> Result<bool, String> {
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(meta.is_dir())
 }
 
 fn dirs_local() -> PathBuf {

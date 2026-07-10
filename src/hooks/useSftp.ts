@@ -63,6 +63,17 @@ export async function sftpUpload(
   });
 }
 
+export async function sftpUploadDir(
+  sessionId: string,
+  localDir: string,
+  remoteDir: string,
+  transferId: string,
+): Promise<number> {
+  return await invoke<number>("sftp_upload_dir", {
+    payload: { sessionId, localDir, remoteDir, transferId },
+  });
+}
+
 export async function sftpDownload(
   sessionId: string,
   remotePath: string,
@@ -80,6 +91,10 @@ export async function localList(path: string): Promise<LocalEntry[]> {
 
 export async function localHome(): Promise<string> {
   return await invoke<string>("local_home");
+}
+
+export async function localIsDir(path: string): Promise<boolean> {
+  return await invoke<boolean>("local_is_dir", { path });
 }
 
 export function joinRemote(dir: string, name: string): string {
