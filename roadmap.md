@@ -135,6 +135,13 @@
 - [x] 2.5 实现文件上传/下载流式传输（Rust 异步读写，支持大文件）
 - [x] 2.6 实现传输进度条（通过事件流推送进度到前端）
 
+**Phase 2 实际交付细节**：
+- `SessionManager` 惰性缓存 `SftpClient`，会话移除时一并释放
+- 命令集：`sftp_list / sftp_home / sftp_mkdir / sftp_remove / sftp_rename / sftp_upload / sftp_download / local_list / local_home`
+- 上传/下载 64KB 缓冲流式 + `sftp://progress` 事件流（增量节流）
+- 前端双栏面板：本地 + 远程虚拟滚动、面包屑路径导航、上级目录跳转
+- 传输队列条：方向图标、渐变进度、完成/失败状态色
+
 ---
 
 ### 🟢 Phase 3：深度融合交互（预计 2 天）
@@ -159,15 +166,31 @@
 ---
 
 ### 🔵 Phase 5：UI 打磨与生产力增强（V1.0 发布前，预计 2 天）
-*目标：从“能用”变成“好用”，增加差异化特性。*
+*目标：从”能用”变成”好用”，增加差异化特性。*
 
 - [ ] 5.1 提供 5 种终端主题预设（One Dark, Dracula, Solarized, Nord, 默认暗色）
 - [ ] 5.2 全局快捷键：注册 `Cmd+Shift+T`（或自定义），随时呼出/隐藏主窗口（类似 iTerm2 的热键窗）
 - [ ] 5.3 内置编辑器联动（Save & Upload）：
   - 双击 SFTP 中的代码文件（`.txt`、`.js`、`.py` 等），下载到临时目录并调用系统默认编辑器（如 VSCode）
-  - 监听文件修改时间，若变更则提示“是否上传更改？”
+  - 监听文件修改时间，若变更则提示”是否上传更改？”
 - [ ] 5.4 传输队列管理器：在 SFTP 面板底部显示传输任务列表，支持暂停/恢复/清空
 - [ ] 5.5 完成多语言支持（i18n）初版（中/英文）
+
+---
+
+## ✨ 额外交付（未在 Roadmap 中，但已实现）
+
+Phase 2 期间额外补齐的体验类改动，均已提交：
+
+- [x] **液态玻璃 UI（macOS Tahoe 风格）**：窗口 `transparent + titleBarStyle: Overlay`；`.glass` 工具类（多层内阴影 + 深度 backdrop-filter）；三栏卡片 `rounded-2xl` 浮起；`trafficLightPosition {x:18, y:24}` 精调红绿灯位置；顶部品牌头/Tab/SFTP 头条统一支持窗口拖拽
+- [x] **ConnectDialog 增强**：品牌渐变分段控件（认证方式）、Headless UI Listbox 分组选择、密码/Passphrase **眼睛图标切换可见性**、独立「测试连接」按钮 + 结果反馈
+- [x] **Sidebar 交互精修**：品牌 Logo + Slogan 双行头、搜索框实时过滤（name/host/user）、分组计数徽章、在线服务器状态点 **Ping 光晕动画**、编辑按钮 hover 浮现
+- [x] **Tab 关闭二次确认**：连接中的 Tab 关闭前弹出确认弹窗，先 `sshDisconnect` 再从 store 移除
+- [x] **双击新建连接**：Sidebar 服务器条目改为**仅双击**触发连接，避免误触
+- [x] **ResizeHandle 药丸把手**：默认灰色小条，hover/拖拽变品牌渐变 + 放大，视觉反馈明确
+- [x] **稳定性修复**：
+  - `ConnectResult` 补 `rename_all = “camelCase”`，修复前端 `sessionId` 为 `undefined` 导致终端不显示
+  - `useSshSession` 修复 `StrictMode` 下 `listen()` 泄漏 → **终端输入双字符**问题（移除 StrictMode + cancelled 判断兜底）
 
 ---
 
@@ -242,8 +265,8 @@ spoke/
 
 ---
 
-**最后更新**：2026-07-09  
-**状态**：🚧 开发中
+**最后更新**：2026-07-10  
+**状态**：🚧 开发中（Phase 0~2 完成，MVP 可用）
 
 ---
 
