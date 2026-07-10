@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "../store/appStore";
 import { TerminalView } from "./TerminalView";
 import { sshDisconnect } from "../hooks/useSshSession";
+import { TERMINAL_THEMES } from "../hooks/terminalThemes";
 
 export function TerminalArea() {
   const tabs = useAppStore((s) => s.tabs);
@@ -10,6 +11,21 @@ export function TerminalArea() {
   const closeTab = useAppStore((s) => s.closeTab);
   const openConnectDialog = useAppStore((s) => s.openConnectDialog);
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const themeRef = useRef<HTMLDivElement | null>(null);
+  const terminalTheme = useAppStore((s) => s.terminalTheme);
+  const setTerminalTheme = useAppStore((s) => s.setTerminalTheme);
+
+  useEffect(() => {
+    if (!themeOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
+        setThemeOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [themeOpen]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
   const pendingTab = tabs.find((t) => t.id === pendingCloseId) ?? null;
@@ -94,6 +110,41 @@ export function TerminalArea() {
             );
           })
         )}
+        <div className="ml-auto flex items-center gap-0.5">
+          <div ref={themeRef} className="relative">
+            <button
+              onClick={() => setThemeOpen((v) => !v)}
+              className="grid h-6 w-6 place-items-center rounded-md text-ink-500 transition-colors hover:bg-black/10 dark:text-ink-400 dark:hover:bg-white/10"
+              aria-label="终端主题"
+            >
+              <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="10" cy="10" r="2.5" />
+                <path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.5 3.5l1.5 1.5M15 15l1.5 1.5M3.5 16.5l1.5-1.5M15 5l1.5-1.5" />
+              </svg>
+            </button>
+            {themeOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border border-black/5 bg-white py-1 shadow-2xl dark:border-white/10 dark:bg-ink-800">
+                {TERMINAL_THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTerminalTheme(t.id); setThemeOpen(false); }}
+                    className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
+                      terminalTheme === t.id ? "text-ink-900 dark:text-ink-100" : "text-ink-600 dark:text-ink-400"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-3 w-3 rounded-full border border-black/10 dark:border-white/10" style={{ backgroundColor: t.theme?.background as string }} />
+                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.green as string }} />
+                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.blue as string }} />
+                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.magenta as string }} />
+                    </span>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="relative flex-1 min-h-0 overflow-hidden font-mono text-sm">

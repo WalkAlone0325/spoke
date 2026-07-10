@@ -44,7 +44,12 @@ interface AppState {
   openConnectDialog: (editingId?: string | null) => void;
   closeConnectDialog: () => void;
   setRemoteCwd: (sessionId: string, path: string) => void;
-  setLocalCwd: (path: string) => void;
+    setLocalCwd: (path: string) => void;
+  collapsedGroupIds: Record<string, boolean>;
+  toggleGroupCollapse: (id: string) => void;
+  setCollapsedGroupIds: (ids: Record<string, boolean>) => void;
+  terminalTheme: string;
+  setTerminalTheme: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -61,6 +66,8 @@ export const useAppStore = create<AppState>((set) => ({
   editingServerId: null,
   remoteCwd: {},
   localCwd: "",
+  collapsedGroupIds: {},
+  terminalTheme: localStorage.getItem("terminalTheme") ?? "spoke-dark",
 
   setThemeMode: (mode) => set({ themeMode: mode }),
   setIsDark: (dark) => set({ isDark: dark }),
@@ -92,6 +99,18 @@ export const useAppStore = create<AppState>((set) => ({
   setRemoteCwd: (sessionId, path) =>
     set((s) => ({ remoteCwd: { ...s.remoteCwd, [sessionId]: path } })),
   setLocalCwd: (path) => set({ localCwd: path }),
+  toggleGroupCollapse: (id) =>
+    set((s) => ({
+      collapsedGroupIds: {
+        ...s.collapsedGroupIds,
+        [id]: !s.collapsedGroupIds[id],
+      },
+    })),
+  setCollapsedGroupIds: (ids) => set({ collapsedGroupIds: ids }),
+  setTerminalTheme: (id) => {
+    localStorage.setItem("terminalTheme", id);
+    set({ terminalTheme: id });
+  },
 }));
 
 export function openSftpPath(path: string) {

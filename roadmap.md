@@ -177,7 +177,7 @@
 ### 🔵 Phase 5：UI 打磨与生产力增强（V1.0 发布前，预计 2 天）
 *目标：从”能用”变成”好用”，增加差异化特性。*
 
-- [ ] 5.1 提供 5 种终端主题预设（One Dark, Dracula, Solarized, Nord, 默认暗色）
+- [x] 5.1 提供 5 种终端主题预设（One Dark, Dracula, Solarized, Nord, 默认暗色）
 - [ ] 5.2 全局快捷键：注册 `Cmd+Shift+T`（或自定义），随时呼出/隐藏主窗口（类似 iTerm2 的热键窗）
 - [ ] 5.3 内置编辑器联动（Save & Upload）：
   - 双击 SFTP 中的代码文件（`.txt`、`.js`、`.py` 等），下载到临时目录并调用系统默认编辑器（如 VSCode）

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useXterm } from "../hooks/useXterm";
 import { useSshSession } from "../hooks/useSshSession";
 import type { TerminalTab } from "../store/appStore";
 import { useAppStore, openSftpPath } from "../store/appStore";
 import { sftpStat } from "../hooks/useSftp";
+import { getTerminalTheme } from "../hooks/terminalThemes";
 
 interface Props {
   tab: TerminalTab;
@@ -12,6 +13,7 @@ interface Props {
 export function TerminalView({ tab }: Props) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const updateTab = useAppStore((s) => s.updateTab);
+  const terminalTheme = useAppStore((s) => s.terminalTheme);
 
   const onOpenPath = useCallback(
     async (path: string) => {
@@ -33,6 +35,8 @@ export function TerminalView({ tab }: Props) {
     [tab.sessionId],
   );
 
+  const termTheme = useMemo(() => getTerminalTheme(terminalTheme), [terminalTheme]);
+
   const term = useXterm(container, {
     onData: (d) => {
       void sendRef.current?.(d);
@@ -41,6 +45,7 @@ export function TerminalView({ tab }: Props) {
       void resizeRef.current?.(cols, rows);
     },
     onOpenPath,
+    theme: termTheme,
   });
 
   const sendRef = useRef<((data: string) => Promise<void>) | null>(null);
@@ -83,6 +88,10 @@ export function TerminalView({ tab }: Props) {
     sendRef.current = send;
     resizeRef.current = resize;
   }, [send, resize]);
+
+  useEffect(() => {
+    term.current?.setTheme(termTheme);
+  }, [termTheme, term]);
 
   useEffect(() => {
     if (ready && term.current) {
