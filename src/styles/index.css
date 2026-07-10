@@ -5,16 +5,36 @@
 @theme {
   --color-brand-500: #0057ff;
   --color-brand-400: #3d80ff;
+  --color-brand-600: #0043cc;
   --color-accent-500: #00c8a0;
+  --color-accent-400: #33d4b3;
+  --color-ink-950: #050505;
   --color-ink-900: #0d0d0d;
+  --color-ink-850: #141416;
   --color-ink-800: #1a1a1a;
+  --color-ink-750: #202024;
   --color-ink-700: #1c1c1e;
   --color-ink-600: #3a3a3c;
+  --color-ink-500: #6e6e73;
+  --color-ink-400: #8e8e93;
+  --color-ink-200: #d1d1d6;
   --color-ink-100: #e5e5e5;
-  --color-ink-50: #f5f5f5;
+  --color-ink-50: #f5f5f7;
+  --color-ink-25: #fafafc;
 
   --font-sans: "Inter", "SF Pro Display", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular", monospace;
+
+  --shadow-glass:
+    0 0 0 0.5px rgb(255 255 255 / 0.6) inset,
+    0 1px 0 rgb(255 255 255 / 0.5) inset,
+    0 1px 3px rgb(0 0 0 / 0.04),
+    0 12px 40px -8px rgb(0 0 0 / 0.12);
+  --shadow-glass-dark:
+    0 0 0 0.5px rgb(255 255 255 / 0.08) inset,
+    0 1px 0 rgb(255 255 255 / 0.06) inset,
+    0 1px 2px rgb(0 0 0 / 0.5),
+    0 16px 48px -8px rgb(0 0 0 / 0.5);
 }
 
 html,
@@ -24,14 +44,113 @@ body,
   margin: 0;
 }
 
+html,
+body {
+  background: transparent;
+}
+
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-ink-50);
   color: var(--color-ink-900);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+  overflow: hidden;
 }
 
 .dark body {
-  background-color: var(--color-ink-900);
   color: var(--color-ink-100);
+}
+
+#root {
+  position: relative;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(240, 240, 246, 0.35) 50%,
+    rgba(230, 232, 240, 0.45) 100%
+  );
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+#root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(0, 87, 255, 0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(0, 200, 160, 0.05) 0%, transparent 70%);
+}
+
+.dark #root {
+  background: linear-gradient(
+    135deg,
+    rgba(28, 28, 32, 0.6) 0%,
+    rgba(18, 18, 22, 0.65) 50%,
+    rgba(24, 24, 30, 0.55) 100%
+  );
+}
+
+.dark #root::before {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(0, 87, 255, 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(0, 200, 160, 0.08) 0%, transparent 70%);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(0 0 0 / 0.12);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(0 0 0 / 0.22);
+  background-clip: content-box;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.1);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.2);
+  background-clip: content-box;
+}
+
+button {
+  cursor: default;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--shadow-glass);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+.dark .glass {
+  background: rgba(28, 28, 32, 0.5);
+  box-shadow: var(--shadow-glass-dark);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-inner {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+.dark .glass-inner {
+  background: rgba(28, 28, 32, 0.45);
 }

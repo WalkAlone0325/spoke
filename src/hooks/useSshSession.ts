@@ -62,36 +62,29 @@ export function useSshSession(sessionId: string | null, hooks: SshSessionHooks) 
       setReady(false);
       return;
     }
-    let mounted = true;
+    let cancelled = false;
     const unlisteners: UnlistenFn[] = [];
     setReady(false);
 
+    const register = async (event: string, handler: (payload: any) => void) => {
+      const un = await listen<any>(event, (e) => handler(e.payload));
+      if (cancelled) {
+        un();
+        return;
+      }
+      unlisteners.push(un);
+    };
+
     (async () => {
-      unlisteners.push(
-        await listen<string>(`ssh://data/${sessionId}`, (e) => {
-          hooksRef.current.onData?.(e.payload);
-        }),
-      );
-      unlisteners.push(
-        await listen<number>(`ssh://exit/${sessionId}`, (e) => {
-          hooksRef.current.onExit?.(e.payload);
-        }),
-      );
-      unlisteners.push(
-        await listen(`ssh://closed/${sessionId}`, () => {
-          hooksRef.current.onClosed?.();
-        }),
-      );
-      unlisteners.push(
-        await listen<string>(`ssh://error/${sessionId}`, (e) => {
-          hooksRef.current.onError?.(e.payload);
-        }),
-      );
-      if (mounted) setReady(true);
+      await register(`ssh://data/${sessionId}`, (p) => hooksRef.current.onData?.(p));
+      await register(`ssh://exit/${sessionId}`, (p) => hooksRef.current.onExit?.(p));
+      await register(`ssh://closed/${sessionId}`, () => hooksRef.current.onClosed?.());
+      await register(`ssh://error/${sessionId}`, (p) => hooksRef.current.onError?.(p));
+      if (!cancelled) setReady(true);
     })();
 
     return () => {
-      mounted = false;
+      cancelled = true;
       unlisteners.forEach((u) => u());
     };
   }, [sessionId]);

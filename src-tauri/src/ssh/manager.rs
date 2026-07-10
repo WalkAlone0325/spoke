@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
 
-use super::{ConnectParams, SshResult, SshSession};
+use super::{ConnectParams, SftpClient, SshResult, SshSession};
 
 pub type SessionId = String;
 
@@ -19,12 +19,14 @@ pub enum SessionEvent {
 #[derive(Default)]
 pub struct SessionManager {
     inner: Arc<Mutex<HashMap<SessionId, Arc<SshSession>>>>,
+    sftps: Arc<Mutex<HashMap<SessionId, Arc<SftpClient>>>>,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
+            sftps: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -47,6 +49,23 @@ impl SessionManager {
     }
 
     pub async fn remove(&self, id: &SessionId) -> Option<Arc<SshSession>> {
+        self.sftps.lock().await.remove(id);
         self.inner.lock().await.remove(id)
+    }
+
+    pub async fn sftp(&self, id: &SessionId) -> SshResult<Arc<SftpClient>> {
+        if let Some(existing) = self.sftps.lock().await.get(id).cloned() {
+            return Ok(existing);
+        }
+        let session = self
+            .get(id)
+            .await
+            .ok_or_else(|| super::SshError::Msg("会话不存在".into()))?;
+        let client = Arc::new(SftpClient::from_session(&session).await?);
+        self.sftps
+            .lock()
+            .await
+            .insert(id.clone(), client.clone());
+        Ok(client)
     }
 }

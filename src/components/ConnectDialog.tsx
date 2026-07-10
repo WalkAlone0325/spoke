@@ -96,6 +96,8 @@ export function ConnectDialog() {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [testResult, setTestResult] = useState<
     { ok: boolean; msg: string } | null
   >(null);
@@ -104,6 +106,8 @@ export function ConnectDialog() {
     if (!open) return;
     setError(null);
     setTestResult(null);
+    setShowPassword(false);
+    setShowPassphrase(false);
     const editing = editingId ? servers.find((s) => s.id === editingId) : null;
     setForm(editing ? fromServer(editing) : empty);
   }, [open, editingId, servers]);
@@ -237,7 +241,7 @@ export function ConnectDialog() {
     <Dialog open={open} onClose={close} className="relative z-50">
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" aria-hidden />
       <div className="fixed inset-0 grid place-items-center p-4">
-        <DialogPanel className="w-full max-w-md rounded-xl border border-black/5 bg-white p-5 shadow-2xl dark:border-white/5 dark:bg-ink-800">
+        <DialogPanel className="w-full max-w-md rounded-xl border border-black/5 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-ink-800">
           <DialogTitle className="mb-4 text-base font-semibold">
             {editingId ? "编辑连接" : "新建连接"}
           </DialogTitle>
@@ -362,11 +366,11 @@ export function ConnectDialog() {
 
             {form.authKind === "password" ? (
               <Field label="密码" span={4}>
-                <input
-                  type="password"
-                  className={inputCls}
+                <PasswordInput
                   value={form.password}
-                  onChange={(e) => patch({ password: e.target.value })}
+                  onChange={(v) => patch({ password: v })}
+                  visible={showPassword}
+                  onToggle={() => setShowPassword((v) => !v)}
                 />
               </Field>
             ) : (
@@ -380,11 +384,11 @@ export function ConnectDialog() {
                   />
                 </Field>
                 <Field label="Passphrase" span={4}>
-                  <input
-                    type="password"
-                    className={inputCls}
+                  <PasswordInput
                     value={form.passphrase}
-                    onChange={(e) => patch({ passphrase: e.target.value })}
+                    onChange={(v) => patch({ passphrase: v })}
+                    visible={showPassphrase}
+                    onToggle={() => setShowPassphrase((v) => !v)}
                     placeholder="留空表示无 passphrase"
                   />
                 </Field>
@@ -424,7 +428,9 @@ export function ConnectDialog() {
                 </>
               ) : (
                 <>
-                  <span>⚡</span>
+                  <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m10 2-6 10h5l-1 6 6-10h-5z" />
+                  </svg>
                   <span>测试连接</span>
                 </>
               )}
@@ -462,6 +468,54 @@ export function ConnectDialog() {
 
 const inputCls =
   "w-full rounded-md border border-black/10 bg-white px-2 py-1.5 text-sm outline-none focus:border-brand-500 dark:border-white/10 dark:bg-ink-700/60";
+
+function PasswordInput({
+  value,
+  onChange,
+  visible,
+  onToggle,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  visible: boolean;
+  onToggle: () => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type={visible ? "text" : "password"}
+        className={`${inputCls} pr-9`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        title={visible ? "隐藏" : "显示"}
+        tabIndex={-1}
+        className="absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-500 transition-colors hover:bg-black/5 hover:text-ink-800 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-ink-100"
+      >
+        {visible ? (
+          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 3l14 14" />
+            <path d="M6.7 6.7C4.6 8 3 10 3 10s3 6 7 6c1.4 0 2.6-.4 3.7-1M9 5.1c.3-.1.7-.1 1-.1 4 0 7 6 7 6s-.5 1-1.4 2.1" />
+            <path d="M8.5 8.5a2 2 0 0 0 2.8 2.8" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" />
+            <circle cx="10" cy="10" r="2.5" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
 
 function Field({
   label,

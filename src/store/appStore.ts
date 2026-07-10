@@ -30,6 +30,8 @@ interface AppState {
   sidebarWidth: number;
   connectDialogOpen: boolean;
   editingServerId: string | null;
+  remoteCwd: Record<string, string>;
+  localCwd: string;
 
   setThemeMode: (mode: ThemeMode) => void;
   setIsDark: (dark: boolean) => void;
@@ -43,6 +45,8 @@ interface AppState {
   setSidebarWidth: (w: number) => void;
   openConnectDialog: (editingId?: string | null) => void;
   closeConnectDialog: () => void;
+  setRemoteCwd: (sessionId: string, path: string) => void;
+  setLocalCwd: (path: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -60,6 +64,8 @@ export const useAppStore = create<AppState>((set) => ({
   sidebarWidth: 220,
   connectDialogOpen: false,
   editingServerId: null,
+  remoteCwd: {},
+  localCwd: "",
 
   setThemeMode: (mode) => set({ themeMode: mode }),
   setIsDark: (dark) => set({ isDark: dark }),
@@ -87,4 +93,7 @@ export const useAppStore = create<AppState>((set) => ({
   openConnectDialog: (editingId = null) =>
     set({ connectDialogOpen: true, editingServerId: editingId }),
   closeConnectDialog: () => set({ connectDialogOpen: false, editingServerId: null }),
+  setRemoteCwd: (sessionId, path) =>
+    set((s) => ({ remoteCwd: { ...s.remoteCwd, [sessionId]: path } })),
+  setLocalCwd: (path) => set({ localCwd: path }),
 }));

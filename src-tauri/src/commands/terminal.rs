@@ -64,6 +64,7 @@ fn default_rows() -> u32 {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectResult {
     pub session_id: SessionId,
 }

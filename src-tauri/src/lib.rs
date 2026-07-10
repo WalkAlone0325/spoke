@@ -16,6 +16,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_os::init())
         .manage(SessionManager::new())
         .invoke_handler(tauri::generate_handler![
             commands::terminal::ssh_test_connect,
@@ -23,6 +25,15 @@ pub fn run() {
             commands::terminal::ssh_send_data,
             commands::terminal::ssh_resize,
             commands::terminal::ssh_disconnect,
+            commands::filesystem::sftp_list,
+            commands::filesystem::sftp_home,
+            commands::filesystem::sftp_mkdir,
+            commands::filesystem::sftp_remove,
+            commands::filesystem::sftp_rename,
+            commands::filesystem::sftp_upload,
+            commands::filesystem::sftp_download,
+            commands::filesystem::local_list,
+            commands::filesystem::local_home,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

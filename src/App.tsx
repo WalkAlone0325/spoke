@@ -32,22 +32,30 @@ function App() {
     [sftpPanelHeight, setSftpPanelHeight],
   );
 
-  const bottomHeight = sftpCollapsed ? 34 : sftpPanelHeight;
+  const bottomHeight = sftpCollapsed ? 38 : sftpPanelHeight;
 
   return (
-    <div className="flex h-full w-full text-ink-900 dark:text-ink-100">
-      <div style={{ width: sidebarWidth }} className="h-full shrink-0">
-        <Sidebar />
-      </div>
-      <ResizeHandle orientation="vertical" onDrag={onSidebarDrag} />
-
-      <div className="flex h-full flex-1 min-w-0 flex-col">
-        <div className="flex-1 min-h-0">
-          <TerminalArea />
+    <div className="relative flex h-full w-full flex-col text-ink-900 dark:text-ink-100">
+      <div className="flex min-h-0 flex-1 gap-2 p-2">
+        <div
+          style={{ width: sidebarWidth }}
+          className="glass h-full shrink-0 overflow-hidden rounded-2xl"
+        >
+          <Sidebar />
         </div>
-        {!sftpCollapsed && <ResizeHandle orientation="horizontal" onDrag={onSftpDrag} />}
-        <div style={{ height: bottomHeight }} className="shrink-0">
-          <SftpPanel />
+        <ResizeHandle orientation="vertical" onDrag={onSidebarDrag} />
+
+        <div className="flex h-full flex-1 min-w-0 flex-col gap-2">
+          <div className="glass flex-1 min-h-0 overflow-hidden rounded-2xl">
+            <TerminalArea />
+          </div>
+          {!sftpCollapsed && <ResizeHandle orientation="horizontal" onDrag={onSftpDrag} />}
+          <div
+            style={{ height: bottomHeight }}
+            className="glass shrink-0 overflow-hidden rounded-2xl"
+          >
+            <SftpPanel />
+          </div>
         </div>
       </div>
 

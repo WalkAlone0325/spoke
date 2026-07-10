@@ -128,12 +128,12 @@
 ### 🟢 Phase 2：SFTP 文件传输（预计 3 天）
 *目标：看到远程文件列表，实现上传/下载及进度。*
 
-- [ ] 2.1 Rust 端基于现有 SSH session 创建 SFTP 实例（`russh-sftp`）
-- [ ] 2.2 实现 Tauri Command `list_files(path)`，返回文件列表 JSON（名称、大小、类型、修改时间）
-- [ ] 2.3 前端使用虚拟滚动（`react-window` 或 `@tanstack/react-virtual`）渲染远程文件列表，防止卡死
-- [ ] 2.4 实现本地文件浏览（使用 `tauri-plugin-fs`），显示在左侧栏
-- [ ] 2.5 实现文件上传/下载流式传输（Rust 异步读写，支持大文件）
-- [ ] 2.6 实现传输进度条（通过事件流推送进度到前端）
+- [x] 2.1 Rust 端基于现有 SSH session 创建 SFTP 实例（`russh-sftp`）
+- [x] 2.2 实现 Tauri Command `list_files(path)`，返回文件列表 JSON（名称、大小、类型、修改时间）
+- [x] 2.3 前端使用虚拟滚动（`react-window` 或 `@tanstack/react-virtual`）渲染远程文件列表，防止卡死
+- [x] 2.4 实现本地文件浏览（使用 `tauri-plugin-fs`），显示在左侧栏
+- [x] 2.5 实现文件上传/下载流式传输（Rust 异步读写，支持大文件）
+- [x] 2.6 实现传输进度条（通过事件流推送进度到前端）
 
 ---
 
