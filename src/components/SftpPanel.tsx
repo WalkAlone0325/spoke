@@ -110,6 +110,7 @@ export function SftpPanel() {
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [remoteSelected, setRemoteSelected] = useState<Set<string>>(new Set());
   const [innerDragOver, setInnerDragOver] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [editingFiles, setEditingFiles] = useState<Record<string, { localPath: string; mtime: number }>>({});
   const [pendingUpload, setPendingUpload] = useState<{ remotePath: string; localPath: string; sessionId: string } | null>(null);
 
@@ -522,11 +523,11 @@ export function SftpPanel() {
       const id = crypto.randomUUID();
       await sftpDownload(sessionId, entry.path, localPath, id);
       const stat = await localStat(localPath);
-      if (!stat?.modified) return;
+      if (!stat?.modified) { setEditError("文件下载后无法获取修改时间"); return; }
       setEditingFiles((prev) => ({ ...prev, [entry.path]: { localPath, mtime: stat.modified! } }));
       await openPath(localPath);
     } catch (e) {
-      console.error("打开编辑器失败", e);
+      setEditError(String(e));
     }
   };
 
@@ -813,6 +814,16 @@ export function SftpPanel() {
           items={menu.items}
           onClose={() => setMenu(null)}
         />
+      )}
+
+      {editError && (
+        <div className="absolute bottom-2 right-2 z-50 max-w-xs rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-600 shadow-lg backdrop-blur dark:text-red-400">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 shrink-0">✕</span>
+            <span className="break-all">{editError}</span>
+            <button onClick={() => setEditError(null)} className="shrink-0 ml-2 text-red-400 hover:text-red-600">✕</button>
+          </div>
+        </div>
       )}
 
       {pendingUpload && (
