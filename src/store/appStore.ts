@@ -97,3 +97,13 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({ remoteCwd: { ...s.remoteCwd, [sessionId]: path } })),
   setLocalCwd: (path) => set({ localCwd: path }),
 }));
+
+export function openSftpPath(path: string) {
+  const s = useAppStore.getState();
+  const active = s.tabs.find((t) => t.id === s.activeTabId);
+  if (!active?.sessionId || !active.connected) return;
+  if (s.sftpPanelCollapsed) {
+    useAppStore.setState({ sftpPanelCollapsed: false });
+  }
+  s.setRemoteCwd(active.sessionId, path);
+}

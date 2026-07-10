@@ -147,11 +147,20 @@
 ### 🟢 Phase 3：深度融合交互（预计 2 天）
 *目标：打造无缝“二合一”体验，形成竞争力。*
 
-- [ ] 3.1 终端路径嗅探：前端监听 XTerm 的 `onKey`，正则匹配绝对路径（如 `/var/log`），检测双击或 `Cmd+Click`
-- [ ] 3.2 点击路径后调用 `open_sftp_path(path)`，底部 SFTP 面板自动切换至该目录，并自动展开面板（若折叠）
-- [ ] 3.3 SFTP 面板右键菜单增加 “在此路径打开终端” → 创建新标签，执行 `cd path`
-- [ ] 3.4 实现拖拽上传（从操作系统拖拽文件到 SFTP 面板区域），触发上传流程
-- [ ] 3.5 连接状态全局同步：断开连接时，左侧状态点变红，SFTP 面板锁定不可操作
+- [x] 3.1 终端路径嗅探：前端监听 XTerm 的 `onKey`，正则匹配绝对路径（如 `/var/log`），检测双击或 `Cmd+Click`
+- [x] 3.2 点击路径后调用 `open_sftp_path(path)`，底部 SFTP 面板自动切换至该目录，并自动展开面板（若折叠）
+- [x] 3.3 SFTP 面板右键菜单增加 “在此路径打开终端” → 创建新标签，执行 `cd path`
+- [x] 3.4 实现拖拽上传（从操作系统拖拽文件到 SFTP 面板区域），触发上传流程
+- [x] 3.5 连接状态全局同步：断开连接时，左侧状态点变红，SFTP 面板锁定不可操作
+
+**Phase 3 实际交付细节**：
+- `useXterm` 通过 `registerLinkProvider` + 正则匹配绝对路径，Cmd/Ctrl+Click 触发 `onOpenPath`
+- 新增 `sftp_stat` 命令：判断点击路径是目录还是文件，文件则自动跳到父目录
+- 全局 `openSftpPath(path)` action：自动展开折叠的 SFTP 面板 + 切换 `remoteCwd`
+- 通用 `ContextMenu` 组件（Portal + 键盘 ESC + 点击外关闭）
+- 远程条目右键：打开 / 在终端 cd / 复制路径 / 下载 / 删除；空白右键：上传 / 刷新 / 复制当前路径
+- 拖拽上传：`webview.onDragDropEvent` 监听 Tauri 原生拖入，落到远程栏区域触发 `uploadFiles`，进入时叠加品牌色高亮 overlay
+- 会话断开时（`onClosed`/`onExit`/`onError`）标 `connected: false`，SFTP 面板依据 `connected` 判断而非仅 `sessionId`，锁定所有操作
 
 ---
 

@@ -100,6 +100,38 @@ impl SftpClient {
             .map_err(|e| SshError::Msg(format!("解析路径失败: {e}")))
     }
 
+    pub async fn stat(&self, path: &str) -> SshResult<RemoteEntry> {
+        let guard = self.inner.lock().await;
+        let meta = guard
+            .metadata(path.to_string())
+            .await
+            .map_err(|e| SshError::Msg(format!("查询元数据失败: {e}")))?;
+        let kind = if meta.is_dir() {
+            EntryKind::Dir
+        } else if meta.is_symlink() {
+            EntryKind::Symlink
+        } else if meta.is_regular() {
+            EntryKind::File
+        } else {
+            EntryKind::Other
+        };
+        let name = path
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(path)
+            .to_string();
+        Ok(RemoteEntry {
+            name,
+            path: path.to_string(),
+            kind,
+            size: meta.size.unwrap_or(0),
+            modified: meta.mtime.map(|t| t as i64),
+            permissions: meta.permissions,
+            is_symlink: meta.is_symlink(),
+        })
+    }
+
     pub async fn make_dir(&self, path: &str) -> SshResult<()> {
         let guard = self.inner.lock().await;
         guard

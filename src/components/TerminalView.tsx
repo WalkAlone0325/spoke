@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useXterm } from "../hooks/useXterm";
 import { useSshSession } from "../hooks/useSshSession";
 import type { TerminalTab } from "../store/appStore";
-import { useAppStore } from "../store/appStore";
+import { useAppStore, openSftpPath } from "../store/appStore";
+import { sftpStat } from "../hooks/useSftp";
 
 interface Props {
   tab: TerminalTab;
@@ -12,6 +13,26 @@ export function TerminalView({ tab }: Props) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const updateTab = useAppStore((s) => s.updateTab);
 
+  const onOpenPath = useCallback(
+    async (path: string) => {
+      const sessionId = tab.sessionId;
+      if (!sessionId) return;
+      let target = path;
+      try {
+        const info = await sftpStat(sessionId, path);
+        if (info.kind !== "dir") {
+          const idx = path.lastIndexOf("/");
+          target = idx > 0 ? path.slice(0, idx) : "/";
+        }
+      } catch {
+        const idx = path.lastIndexOf("/");
+        if (idx > 0) target = path.slice(0, idx);
+      }
+      openSftpPath(target);
+    },
+    [tab.sessionId],
+  );
+
   const term = useXterm(container, {
     onData: (d) => {
       void sendRef.current?.(d);
@@ -19,6 +40,7 @@ export function TerminalView({ tab }: Props) {
     onResize: (cols, rows) => {
       void resizeRef.current?.(cols, rows);
     },
+    onOpenPath,
   });
 
   const sendRef = useRef<((data: string) => Promise<void>) | null>(null);
@@ -43,8 +65,11 @@ export function TerminalView({ tab }: Props) {
   const onError = useCallback(
     (msg: string) => {
       term.current?.term.writeln(`\r\n\x1b[31m[错误] ${msg}\x1b[0m`);
+      if (msg.startsWith("keepalive")) {
+        updateTab(tab.id, { connected: false });
+      }
     },
-    [term],
+    [term, tab.id, updateTab],
   );
 
   const { send, resize, ready } = useSshSession(tab.sessionId ?? null, {

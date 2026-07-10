@@ -36,6 +36,10 @@ export async function sftpHome(sessionId: string): Promise<string> {
   return await invoke<string>("sftp_home", { sessionId });
 }
 
+export async function sftpStat(sessionId: string, path: string): Promise<RemoteEntry> {
+  return await invoke<RemoteEntry>("sftp_stat", { sessionId, path });
+}
+
 export async function sftpMkdir(sessionId: string, path: string): Promise<void> {
   await invoke("sftp_mkdir", { sessionId, path });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Terminal, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type ITerminalOptions, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -16,9 +16,12 @@ export interface UseXtermOptions {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   onOpenLink?: (url: string) => void;
+  onOpenPath?: (path: string) => void;
   theme?: ITerminalOptions["theme"];
   fontFamily?: string;
 }
+
+const PATH_REGEX = /(?:^|\s|["'`(])(\/(?:[\w.\-@]+\/?)+)/g;
 
 const DEFAULT_THEME_DARK: ITerminalOptions["theme"] = {
   background: "#0d0d0d",
@@ -76,6 +79,41 @@ export function useXterm(
     term.loadAddon(links);
     term.open(container);
 
+    const pathLink = term.registerLinkProvider({
+      provideLinks(
+        y: number,
+        callback: (links: ILink[] | undefined) => void,
+      ) {
+        const buf = term.buffer.active;
+        const line = buf.getLine(y - 1);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+        const text = line.translateToString(true);
+        const results: ILink[] = [];
+        for (const m of text.matchAll(PATH_REGEX)) {
+          const path = m[1];
+          if (!path) continue;
+          const start = (m.index ?? 0) + m[0].indexOf(path) + 1;
+          const end = start + path.length;
+          results.push({
+            range: {
+              start: { x: start, y },
+              end: { x: end, y },
+            },
+            text: path,
+            activate: (_e, uri) => {
+              optsRef.current.onOpenPath?.(uri);
+            },
+            hover() {},
+            leave() {},
+          });
+        }
+        callback(results.length ? results : undefined);
+      },
+    });
+
     let webgl: WebglAddon | null = null;
     try {
       webgl = new WebglAddon();
@@ -108,6 +146,7 @@ export function useXterm(
       dispose: () => {
         onData.dispose();
         onResize.dispose();
+        pathLink.dispose();
         ro.disconnect();
         webgl?.dispose();
         term.dispose();

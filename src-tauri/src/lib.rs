@@ -18,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(SessionManager::new())
         .invoke_handler(tauri::generate_handler![
             commands::terminal::ssh_test_connect,
@@ -27,6 +28,7 @@ pub fn run() {
             commands::terminal::ssh_disconnect,
             commands::filesystem::sftp_list,
             commands::filesystem::sftp_home,
+            commands::filesystem::sftp_stat,
             commands::filesystem::sftp_mkdir,
             commands::filesystem::sftp_remove,
             commands::filesystem::sftp_rename,

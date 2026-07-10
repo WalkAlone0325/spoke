@@ -73,6 +73,16 @@ pub async fn sftp_home(
 }
 
 #[tauri::command]
+pub async fn sftp_stat(
+    manager: State<'_, SessionManager>,
+    session_id: SessionId,
+    path: String,
+) -> Result<crate::ssh::RemoteEntry, String> {
+    let sftp = manager.sftp(&session_id).await.map_err(|e| e.to_string())?;
+    sftp.stat(&path).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     manager: State<'_, SessionManager>,
     session_id: SessionId,

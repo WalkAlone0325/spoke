@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { useAppStore } from "../store/appStore";
+import { sshSendData } from "./../hooks/useSshSession";
 import {
   joinLocal,
   joinRemote,
@@ -13,11 +16,13 @@ import {
   sftpDownload,
   sftpHome,
   sftpList,
+  sftpRemove,
   sftpUpload,
   type LocalEntry,
   type RemoteEntry,
   type TransferProgress,
 } from "../hooks/useSftp";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 type Transfer = {
   id: string;
@@ -69,7 +74,7 @@ export function SftpPanel() {
   const setLocalCwd = useAppStore((s) => s.setLocalCwd);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
-  const sessionId = activeTab?.sessionId ?? null;
+  const sessionId = activeTab?.connected ? activeTab.sessionId ?? null : null;
   const remoteCwd = sessionId ? remoteCwdMap[sessionId] ?? "" : "";
 
   const [remoteEntries, setRemoteEntries] = useState<RemoteEntry[]>([]);
@@ -77,6 +82,13 @@ export function SftpPanel() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!localCwd) {
@@ -119,6 +131,37 @@ export function SftpPanel() {
     }
   }, [sessionId, remoteCwd]);
 
+  const uploadFiles = useCallback(
+    async (files: string[]) => {
+      if (!sessionId || !remoteCwd) return;
+      for (const file of files) {
+        const name = file.split(/[\\/]/).pop() ?? "upload";
+        const id = crypto.randomUUID();
+        const remotePath = joinRemote(remoteCwd, name);
+        setTransfers((prev) => [
+          ...prev,
+          { id, direction: "upload", name, transferred: 0, done: false },
+        ]);
+        try {
+          const total = await sftpUpload(sessionId, file, remotePath, id);
+          setTransfers((prev) =>
+            prev.map((t) =>
+              t.id === id ? { ...t, transferred: total, total, done: true } : t,
+            ),
+          );
+          void refreshRemote();
+        } catch (e) {
+          setTransfers((prev) =>
+            prev.map((t) =>
+              t.id === id ? { ...t, done: true, error: String(e) } : t,
+            ),
+          );
+        }
+      }
+    },
+    [sessionId, remoteCwd, refreshRemote],
+  );
+
   useEffect(() => {
     void refreshRemote();
   }, [refreshRemote]);
@@ -139,6 +182,42 @@ export function SftpPanel() {
       un?.();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | null = null;
+    (async () => {
+      const un = await getCurrentWebview().onDragDropEvent((event) => {
+        const zone = dropZoneRef.current;
+        if (!zone) return;
+        const payload = event.payload;
+        if (payload.type === "enter" || payload.type === "over") {
+          const { x, y } = payload.position;
+          const rect = zone.getBoundingClientRect();
+          const inside =
+            x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+          setDragOver(inside);
+        } else if (payload.type === "drop") {
+          const { x, y } = payload.position;
+          const rect = zone.getBoundingClientRect();
+          const inside =
+            x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+          setDragOver(false);
+          if (inside && payload.paths.length > 0) {
+            void uploadFiles(payload.paths);
+          }
+        } else {
+          setDragOver(false);
+        }
+      });
+      if (cancelled) un();
+      else unlisten = un;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [uploadFiles]);
 
   const enterRemote = (entry: RemoteEntry) => {
     if (!sessionId) return;
@@ -165,30 +244,7 @@ export function SftpPanel() {
     const picked = await open({ multiple: true, directory: false });
     if (!picked) return;
     const files = Array.isArray(picked) ? picked : [picked];
-    for (const file of files) {
-      const name = file.split(/[\\/]/).pop() ?? "upload";
-      const id = crypto.randomUUID();
-      const remotePath = joinRemote(remoteCwd, name);
-      setTransfers((prev) => [
-        ...prev,
-        { id, direction: "upload", name, transferred: 0, done: false },
-      ]);
-      try {
-        const total = await sftpUpload(sessionId, file, remotePath, id);
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === id ? { ...t, transferred: total, total, done: true } : t,
-          ),
-        );
-        void refreshRemote();
-      } catch (e) {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === id ? { ...t, done: true, error: String(e) } : t,
-          ),
-        );
-      }
-    }
+    await uploadFiles(files);
   };
 
   const handleDownload = async (entry: RemoteEntry) => {
@@ -227,6 +283,75 @@ export function SftpPanel() {
 
   const clearFinished = () =>
     setTransfers((prev) => prev.filter((t) => !t.done && !t.error));
+
+  const openRemoteMenu = (e: React.MouseEvent, entry: RemoteEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sessionId) return;
+    const items: ContextMenuItem[] = [];
+    if (entry.kind === "dir") {
+      items.push({
+        label: "打开",
+        onClick: () => enterRemote(entry),
+      });
+      items.push({
+        label: "在终端打开 (cd)",
+        onClick: () => {
+          void sshSendData(sessionId, `cd ${quoteShell(entry.path)}\n`);
+        },
+      });
+    } else if (entry.kind === "file") {
+      items.push({
+        label: "下载…",
+        onClick: () => void handleDownload(entry),
+      });
+    }
+    items.push({
+      label: "复制路径",
+      onClick: () => void writeText(entry.path),
+      separatorAfter: true,
+    });
+    items.push({
+      label: "删除",
+      danger: true,
+      onClick: () => void handleRemove(entry),
+    });
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
+  const openRemoteBlankMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!sessionId || !remoteCwd) return;
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "上传文件…",
+          onClick: () => void handleUpload(),
+        },
+        {
+          label: "刷新",
+          onClick: () => void refreshRemote(),
+        },
+        {
+          label: "复制当前路径",
+          onClick: () => void writeText(remoteCwd),
+        },
+      ],
+    });
+  };
+
+  const handleRemove = async (entry: RemoteEntry) => {
+    if (!sessionId) return;
+    if (!window.confirm(`确定删除「${entry.name}」？此操作不可恢复。`)) return;
+    try {
+      await sftpRemove(sessionId, entry.path);
+      void refreshRemote();
+    } catch (e) {
+      console.error("删除失败", e);
+    }
+  };
 
   return (
     <section className="flex h-full min-h-0 flex-col">
@@ -311,6 +436,10 @@ export function SftpPanel() {
               onEnter={enterRemote}
               onDownload={handleDownload}
               onNav={(p) => sessionId && setRemoteCwd(sessionId, p)}
+              onEntryContextMenu={openRemoteMenu}
+              onBlankContextMenu={openRemoteBlankMenu}
+              dropRef={dropZoneRef}
+              dragOver={dragOver}
             />
           </div>
 
@@ -319,8 +448,22 @@ export function SftpPanel() {
           )}
         </>
       )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.items}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </section>
   );
+}
+
+function quoteShell(path: string): string {
+  if (!/[\s"'`\\$&|;()<>*?]/.test(path)) return path;
+  return `'${path.replace(/'/g, "'\\''")}'`;
 }
 
 function IconButton({
@@ -474,6 +617,10 @@ function RemoteColumn({
   onEnter,
   onDownload,
   onNav,
+  onEntryContextMenu,
+  onBlankContextMenu,
+  dropRef,
+  dragOver,
 }: {
   connected: boolean;
   loading: boolean;
@@ -484,6 +631,10 @@ function RemoteColumn({
   onEnter: (e: RemoteEntry) => void;
   onDownload: (e: RemoteEntry) => void;
   onNav: (p: string) => void;
+  onEntryContextMenu: (e: React.MouseEvent, entry: RemoteEntry) => void;
+  onBlankContextMenu: (e: React.MouseEvent) => void;
+  dropRef: React.RefObject<HTMLDivElement | null>;
+  dragOver: boolean;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -507,7 +658,16 @@ function RemoteColumn({
     if (entries.length === 0)
       return <EmptyHint icon="📭" text="空目录" />;
     return (
-      <div ref={parentRef} className="flex-1 overflow-auto">
+      <div
+        ref={parentRef}
+        className="flex-1 overflow-auto"
+        onContextMenu={(e) => {
+          if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === "DIV") {
+            const isRow = (e.target as HTMLElement).closest("[data-remote-row]");
+            if (!isRow) onBlankContextMenu(e);
+          }
+        }}
+      >
         <div
           style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
         >
@@ -516,6 +676,7 @@ function RemoteColumn({
             return (
               <div
                 key={row.key}
+                data-remote-row
                 style={{
                   position: "absolute",
                   top: 0,
@@ -525,6 +686,7 @@ function RemoteColumn({
                   height: row.size,
                 }}
                 onDoubleClick={() => onEnter(item)}
+                onContextMenu={(e) => onEntryContextMenu(e, item)}
                 className="group flex cursor-pointer items-center gap-2 px-3 text-xs transition-colors hover:bg-brand-500/5 dark:hover:bg-brand-500/10"
               >
                 <EntryIcon kind={item.kind} />
@@ -554,10 +716,14 @@ function RemoteColumn({
         </div>
       </div>
     );
-  }, [connected, error, loading, entries, rowVirtualizer, onEnter, onDownload]);
+  }, [connected, error, loading, entries, rowVirtualizer, onEnter, onDownload, onEntryContextMenu, onBlankContextMenu]);
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div
+      ref={dropRef}
+      className="relative flex min-h-0 flex-col"
+      onContextMenu={onBlankContextMenu}
+    >
       <PathBar
         label="远程"
         cwd={cwd || "…"}
@@ -566,6 +732,13 @@ function RemoteColumn({
         disabled={!connected}
       />
       {body}
+      {dragOver && connected && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-brand-500/10 backdrop-blur-sm ring-2 ring-inset ring-brand-500/50">
+          <div className="rounded-xl bg-white/90 px-4 py-2 text-xs font-medium text-brand-500 shadow-lg dark:bg-ink-800/90">
+            释放以上传到 {cwd || "远程"}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
