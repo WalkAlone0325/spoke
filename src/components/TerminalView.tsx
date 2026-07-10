@@ -101,11 +101,13 @@ export function TerminalView({ tab }: Props) {
     }
   }, [ready, resize, term]);
 
+  const outerBg = (termTheme?.background as string) ?? "#0d0d0d";
+
   return (
-    <div className="relative h-full w-full bg-black">
+    <div className="relative h-full w-full" style={{ backgroundColor: outerBg }}>
       <div
         ref={setContainer}
-        className="absolute inset-0 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"
+        className="absolute inset-2 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"
       />
     </div>
   );

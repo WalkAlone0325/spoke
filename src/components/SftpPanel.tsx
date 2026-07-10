@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -15,6 +14,7 @@ import {
   localList,
   localStat,
   editTempPath,
+  editOpenFile,
   parentLocal,
   parentRemote,
   sftpDownload,
@@ -298,7 +298,7 @@ export function SftpPanel() {
 
   const handleUpload = async () => {
     if (!sessionId || !remoteCwd) return;
-    const picked = await open({ multiple: true, directory: false });
+    const picked = await open({ multiple: true, directory: false, title: "选择要上传的文件" });
     if (!picked) return;
     const files = Array.isArray(picked) ? picked : [picked];
     await uploadFiles(files);
@@ -306,7 +306,7 @@ export function SftpPanel() {
 
   const handleUploadDir = async () => {
     if (!sessionId || !remoteCwd) return;
-    const picked = await open({ multiple: false, directory: true });
+    const picked = await open({ multiple: false, directory: true, title: "选择要上传的文件夹" });
     if (!picked) return;
     await uploadFiles([picked as string]);
   };
@@ -333,7 +333,7 @@ export function SftpPanel() {
   const handleDownload = async (entry: RemoteEntry) => {
     if (!sessionId) return;
     if (entry.kind !== "file") return;
-    const target = await save({ defaultPath: joinLocal(localCwd, entry.name) });
+    const target = await save({ defaultPath: joinLocal(localCwd, entry.name), title: "保存文件" });
     if (!target) return;
     const id = crypto.randomUUID();
     setTransfers((prev) => [
@@ -525,7 +525,7 @@ export function SftpPanel() {
       const stat = await localStat(localPath);
       if (!stat?.modified) { setEditError("文件下载后无法获取修改时间"); return; }
       setEditingFiles((prev) => ({ ...prev, [entry.path]: { localPath, mtime: stat.modified! } }));
-      await openPath(localPath);
+      await editOpenFile(localPath);
     } catch (e) {
       setEditError(String(e));
     }
@@ -561,7 +561,7 @@ export function SftpPanel() {
       if (skipped > 0) window.alert("目录批量下载暂未支持");
       return;
     }
-    const dir = await open({ directory: true, multiple: false });
+    const dir = await open({ directory: true, multiple: false, title: "选择下载保存位置" });
     if (!dir) return;
     for (const entry of files) {
       const id = crypto.randomUUID();

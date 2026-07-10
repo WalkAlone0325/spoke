@@ -105,6 +105,10 @@ export async function editTempPath(filename: string): Promise<string> {
   return await invoke<string>("edit_temp_path", { filename });
 }
 
+export async function editOpenFile(path: string): Promise<void> {
+  await invoke("edit_open_file", { path });
+}
+
 export function joinRemote(dir: string, name: string): string {
   if (name === "..") return parentRemote(dir);
   if (name === ".") return dir;

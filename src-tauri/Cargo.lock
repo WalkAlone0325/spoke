@@ -4759,6 +4759,7 @@ dependencies = [
  "bytes",
  "dirs 5.0.1",
  "keyring",
+ "open",
  "russh",
  "russh-sftp",
  "serde",

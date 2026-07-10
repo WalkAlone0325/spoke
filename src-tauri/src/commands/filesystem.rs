@@ -396,6 +396,11 @@ pub fn edit_temp_path(filename: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn edit_open_file(path: String) -> Result<(), String> {
+    open::that(&path).map_err(|e| format!("打开文件失败: {e}"))
+}
+
+#[tauri::command]
 pub async fn local_stat(path: String) -> Result<Option<LocalEntry>, String> {
     let meta = match tokio::fs::metadata(&path).await {
         Ok(m) => m,
