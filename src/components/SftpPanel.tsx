@@ -17,6 +17,7 @@ import {
   editOpenFile,
   parentLocal,
   parentRemote,
+  sftpCancelTransfer,
   sftpDownload,
   sftpHome,
   sftpList,
@@ -37,6 +38,7 @@ type Transfer = {
   total?: number | null;
   done: boolean;
   error?: string;
+  cancelling?: boolean;
 };
 
 function formatSize(n: number): string {
@@ -189,7 +191,9 @@ export function SftpPanel() {
         } catch (e) {
           setTransfers((prev) =>
             prev.map((t) =>
-              t.id === id ? { ...t, done: true, error: String(e) } : t,
+              t.id === id
+                ? { ...t, done: true, cancelling: false, error: String(e) }
+                : t,
             ),
           );
         }
@@ -358,7 +362,9 @@ export function SftpPanel() {
     } catch (e) {
       setTransfers((prev) =>
         prev.map((t) =>
-          t.id === id ? { ...t, done: true, error: String(e) } : t,
+          t.id === id
+            ? { ...t, done: true, cancelling: false, error: String(e) }
+            : t,
         ),
       );
     }
@@ -366,6 +372,13 @@ export function SftpPanel() {
 
   const clearFinished = () =>
     setTransfers((prev) => prev.filter((t) => !t.done && !t.error));
+
+  const handleCancelTransfer = (id: string) => {
+    setTransfers((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, cancelling: true } : t)),
+    );
+    sftpCancelTransfer(id).catch(() => {});
+  };
 
   const openRemoteMenu = (e: React.MouseEvent, entry: RemoteEntry) => {
     e.preventDefault();
@@ -587,7 +600,9 @@ export function SftpPanel() {
       } catch (e) {
         setTransfers((prev) =>
           prev.map((t) =>
-            t.id === id ? { ...t, done: true, error: String(e) } : t,
+            t.id === id
+              ? { ...t, done: true, cancelling: false, error: String(e) }
+              : t,
           ),
         );
       }
@@ -802,7 +817,11 @@ export function SftpPanel() {
           </div>
 
           {transfers.length > 0 && (
-            <TransferBar transfers={transfers} onClear={clearFinished} />
+            <TransferBar
+              transfers={transfers}
+              onClear={clearFinished}
+              onCancel={handleCancelTransfer}
+            />
           )}
         </>
       )}
@@ -1296,12 +1315,16 @@ function PathBar({
 function TransferBar({
   transfers,
   onClear,
+  onCancel,
 }: {
   transfers: Transfer[];
   onClear: () => void;
+  onCancel: (id: string) => void;
 }) {
+  const hasActive = transfers.some((t) => !t.done);
+  const hasFinished = transfers.some((t) => t.done);
   return (
-    <div className="max-h-32 overflow-auto border-t border-black/[0.06] px-3 py-1.5 text-xs dark:border-white/[0.06]">
+    <div className="max-h-36 overflow-auto border-t border-black/[0.06] px-3 py-1.5 text-xs dark:border-white/[0.06]">
       <div className="mb-1 flex items-center justify-between">
         <div className="flex items-center gap-1.5 font-medium text-ink-700 dark:text-ink-200">
           <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -1312,12 +1335,28 @@ function TransferBar({
             {transfers.length}
           </span>
         </div>
-        <button
-          onClick={onClear}
-          className="rounded px-1.5 py-0.5 text-ink-500 hover:bg-black/5 hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-ink-100"
-        >
-          清空已完成
-        </button>
+        <div className="flex items-center gap-1">
+          {hasActive && (
+            <button
+              onClick={() => {
+                transfers.forEach((t) => {
+                  if (!t.done) onCancel(t.id);
+                });
+              }}
+              className="rounded px-1.5 py-0.5 text-ink-500 hover:bg-black/5 hover:text-red-500 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-red-400"
+            >
+              全部取消
+            </button>
+          )}
+          {hasFinished && (
+            <button
+              onClick={onClear}
+              className="rounded px-1.5 py-0.5 text-ink-500 hover:bg-black/5 hover:text-ink-900 dark:text-ink-400 dark:hover:bg-white/10 dark:hover:text-ink-100"
+            >
+              清空已完成
+            </button>
+          )}
+        </div>
       </div>
       <div className="space-y-1">
         {transfers.map((t) => {
@@ -1336,45 +1375,66 @@ function TransferBar({
                     : "bg-accent-500/10 text-accent-500"
                 }`}
               >
-                <svg
-                  viewBox="0 0 20 20"
-                  className={`h-2.5 w-2.5 ${
-                    t.direction === "download" ? "rotate-180" : ""
-                  }`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                >
-                  <path d="M10 4v12M5 9l5-5 5 5" />
-                </svg>
+                {t.cancelling ? (
+                  <svg className="h-2.5 w-2.5 animate-spin" viewBox="0 0 20 20" fill="none">
+                    <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="2" strokeDasharray="30 10" />
+                  </svg>
+                ) : (
+                  <svg
+                    viewBox="0 0 20 20"
+                    className={`h-2.5 w-2.5 ${
+                      t.direction === "download" ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                  >
+                    <path d="M10 4v12M5 9l5-5 5 5" />
+                  </svg>
+                )}
               </span>
               <span className="flex-1 truncate" title={t.name}>
                 {t.name}
               </span>
-              <div className="h-1 w-24 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+              <div className="h-1 w-20 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
                 <div
                   className={`h-full transition-all duration-150 ${
                     t.error
                       ? "bg-red-500"
                       : t.done
                         ? "bg-accent-500"
-                        : "bg-linear-to-r from-brand-500 to-accent-500"
+                        : t.cancelling
+                          ? "bg-ink-400"
+                          : "bg-linear-to-r from-brand-500 to-accent-500"
                   }`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
               <span
-                className={`w-14 text-right tabular-nums ${
+                className={`w-12 text-right tabular-nums ${
                   t.error
                     ? "text-red-500"
                     : t.done
                       ? "text-accent-500"
-                      : "text-ink-500 dark:text-ink-400"
+                      : t.cancelling
+                        ? "text-ink-400"
+                        : "text-ink-500 dark:text-ink-400"
                 }`}
               >
-                {t.error ? "失败" : t.done ? "完成" : `${pct}%`}
+                {t.cancelling ? "取消中" : t.error ? "失败" : t.done ? "完成" : `${pct}%`}
               </span>
+              {!t.done && !t.cancelling && (
+                <button
+                  onClick={() => onCancel(t.id)}
+                  className="grid h-4 w-4 shrink-0 place-items-center rounded text-ink-400 hover:bg-black/10 hover:text-red-500 dark:hover:bg-white/10"
+                  title="取消"
+                >
+                  <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                </button>
+              )}
             </div>
           );
         })}

@@ -89,6 +89,7 @@ pub struct ConnectPayload {
     pub rows: u32,
     pub proxy_jump: Option<ProxyJumpPayload>,
     pub proxy: Option<ProxyKindPayload>,
+    pub locale: Option<String>,
 }
 
 fn default_port() -> u16 { 22 }
@@ -114,6 +115,7 @@ pub async fn ssh_test_connect(payload: ConnectPayload) -> Result<String, String>
         rows: payload.rows,
         proxy_jump: payload.proxy_jump.map(|j| j.into()),
         proxy: payload.proxy.map(|p| p.into()),
+        locale: payload.locale,
     };
     SshSession::test_connect(&params)
         .await
@@ -136,6 +138,7 @@ pub async fn ssh_connect(
         rows: payload.rows,
         proxy_jump: payload.proxy_jump.map(|j| j.into()),
         proxy: payload.proxy.map(|p| p.into()),
+        locale: payload.locale,
     };
     let (id, mut rx) = manager.create(params).await.map_err(|e| e.to_string())?;
 

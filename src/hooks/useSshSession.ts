@@ -38,6 +38,7 @@ export interface ConnectPayload {
   rows?: number;
   proxyJump?: ProxyJumpPayload;
   proxy?: ProxyKindPayload;
+  locale?: string;
 }
 
 export interface SshSessionApi {

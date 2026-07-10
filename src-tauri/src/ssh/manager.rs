@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, mpsc};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::{ConnectParams, SftpClient, SshResult, SshSession};
@@ -20,6 +21,7 @@ pub enum SessionEvent {
 pub struct SessionManager {
     inner: Arc<Mutex<HashMap<SessionId, Arc<SshSession>>>>,
     sftps: Arc<Mutex<HashMap<SessionId, Arc<SftpClient>>>>,
+    transfers: Arc<Mutex<HashMap<String, CancellationToken>>>,
 }
 
 impl SessionManager {
@@ -27,6 +29,7 @@ impl SessionManager {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
             sftps: Arc::new(Mutex::new(HashMap::new())),
+            transfers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -51,6 +54,25 @@ impl SessionManager {
     pub async fn remove(&self, id: &SessionId) -> Option<Arc<SshSession>> {
         self.sftps.lock().await.remove(id);
         self.inner.lock().await.remove(id)
+    }
+
+    pub async fn register_transfer(&self, id: String) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.transfers.lock().await.insert(id, token.clone());
+        token
+    }
+
+    pub async fn cancel_transfer(&self, id: &str) -> bool {
+        if let Some(token) = self.transfers.lock().await.remove(id) {
+            token.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn remove_transfer(&self, id: &str) {
+        self.transfers.lock().await.remove(id);
     }
 
     pub async fn sftp(&self, id: &SessionId) -> SshResult<Arc<SftpClient>> {

@@ -5,6 +5,7 @@ use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use super::{SshError, SshResult, SshSession};
 
@@ -167,7 +168,13 @@ impl SftpClient {
             .map_err(|e| SshError::Msg(format!("重命名失败: {e}")))
     }
 
-    pub async fn download<W, F>(&self, remote: &str, writer: &mut W, mut on_progress: F) -> SshResult<u64>
+    pub async fn download<W, F>(
+        &self,
+        remote: &str,
+        writer: &mut W,
+        mut on_progress: F,
+        cancel: CancellationToken,
+    ) -> SshResult<u64>
     where
         W: AsyncWriteExt + Unpin,
         F: FnMut(u64),
@@ -180,24 +187,34 @@ impl SftpClient {
         let mut buf = vec![0u8; 64 * 1024];
         let mut total: u64 = 0;
         loop {
-            let n = file
-                .read(&mut buf)
-                .await
-                .map_err(|e| SshError::Msg(format!("读取远程失败: {e}")))?;
-            if n == 0 {
-                break;
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    return Err(SshError::Msg("传输已取消".into()));
+                }
+                result = file.read(&mut buf) => {
+                    let n = result.map_err(|e| SshError::Msg(format!("读取远程失败: {e}")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    writer
+                        .write_all(&buf[..n])
+                        .await
+                        .map_err(|e| SshError::Msg(format!("写入本地失败: {e}")))?;
+                    total += n as u64;
+                    on_progress(total);
+                }
             }
-            writer
-                .write_all(&buf[..n])
-                .await
-                .map_err(|e| SshError::Msg(format!("写入本地失败: {e}")))?;
-            total += n as u64;
-            on_progress(total);
         }
         Ok(total)
     }
 
-    pub async fn upload<R, F>(&self, remote: &str, mut reader: R, mut on_progress: F) -> SshResult<u64>
+    pub async fn upload<R, F>(
+        &self,
+        remote: &str,
+        mut reader: R,
+        mut on_progress: F,
+        cancel: CancellationToken,
+    ) -> SshResult<u64>
     where
         R: AsyncReadExt + Unpin,
         F: FnMut(u64),
@@ -211,18 +228,22 @@ impl SftpClient {
         let mut buf = vec![0u8; 64 * 1024];
         let mut total: u64 = 0;
         loop {
-            let n = reader
-                .read(&mut buf)
-                .await
-                .map_err(|e| SshError::Msg(format!("读取本地失败: {e}")))?;
-            if n == 0 {
-                break;
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    return Err(SshError::Msg("传输已取消".into()));
+                }
+                result = reader.read(&mut buf) => {
+                    let n = result.map_err(|e| SshError::Msg(format!("读取本地失败: {e}")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    file.write_all(&buf[..n])
+                        .await
+                        .map_err(|e| SshError::Msg(format!("写入远程失败: {e}")))?;
+                    total += n as u64;
+                    on_progress(total);
+                }
             }
-            file.write_all(&buf[..n])
-                .await
-                .map_err(|e| SshError::Msg(format!("写入远程失败: {e}")))?;
-            total += n as u64;
-            on_progress(total);
         }
         file.flush()
             .await

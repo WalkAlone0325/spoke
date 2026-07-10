@@ -85,6 +85,10 @@ export async function sftpDownload(
   });
 }
 
+export async function sftpCancelTransfer(transferId: string): Promise<boolean> {
+  return await invoke<boolean>("sftp_cancel_transfer", { transferId });
+}
+
 export async function localList(path: string): Promise<LocalEntry[]> {
   return await invoke<LocalEntry[]>("local_list", { path });
 }

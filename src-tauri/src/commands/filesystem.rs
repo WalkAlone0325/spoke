@@ -144,7 +144,8 @@ pub async fn sftp_upload(
     let transfer_id = payload.transfer_id.clone();
     let app_handle = app.clone();
     let emitted = AtomicU64::new(0);
-    let n = sftp
+    let cancel = manager.register_transfer(transfer_id.clone()).await;
+    let result = sftp
         .upload(&payload.remote_path, reader, |transferred| {
             let last = emitted.load(Ordering::Relaxed);
             if transferred - last >= 64 * 1024 || transferred == total_size.unwrap_or(0) {
@@ -158,13 +159,14 @@ pub async fn sftp_upload(
                     },
                 );
             }
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+        }, cancel)
+        .await;
+    manager.remove_transfer(&transfer_id).await;
+    let n = result.map_err(|e| e.to_string())?;
     let _ = app.emit(
         "sftp://progress",
         TransferProgress {
-            transfer_id: payload.transfer_id,
+            transfer_id,
             transferred: n,
             total: total_size,
         },
@@ -204,33 +206,40 @@ pub async fn sftp_upload_dir(
     let app_handle = app.clone();
     let emitted = AtomicU64::new(0);
     let mut transferred: u64 = 0;
+    let cancel = manager.register_transfer(transfer_id.clone()).await;
 
-    for (local, remote) in &files {
-        let file = TokioFile::open(local)
-            .await
-            .map_err(|e| format!("打开 {}: {e}", local.display()))?;
-        let reader = BufReader::new(file);
-        let start = transferred;
-        let n = sftp
-            .upload(remote, reader, |cur| {
-                let total_now = start + cur;
-                let last = emitted.load(Ordering::Relaxed);
-                if total_now - last >= 64 * 1024 {
-                    emitted.store(total_now, Ordering::Relaxed);
-                    let _ = app_handle.emit(
-                        "sftp://progress",
-                        TransferProgress {
-                            transfer_id: transfer_id.clone(),
-                            transferred: total_now,
-                            total: Some(total_size),
-                        },
-                    );
-                }
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-        transferred += n;
-    }
+    let result = async {
+        for (local, remote) in &files {
+            let file = TokioFile::open(local)
+                .await
+                .map_err(|e| format!("打开 {}: {e}", local.display()))?;
+            let reader = BufReader::new(file);
+            let start = transferred;
+            let n = sftp
+                .upload(remote, reader, |cur| {
+                    let total_now = start + cur;
+                    let last = emitted.load(Ordering::Relaxed);
+                    if total_now - last >= 64 * 1024 {
+                        emitted.store(total_now, Ordering::Relaxed);
+                        let _ = app_handle.emit(
+                            "sftp://progress",
+                            TransferProgress {
+                                transfer_id: transfer_id.clone(),
+                                transferred: total_now,
+                                total: Some(total_size),
+                            },
+                        );
+                    }
+                }, cancel.clone())
+                .await
+                .map_err(|e| e.to_string())?;
+            transferred += n;
+        }
+        Ok::<u64, String>(transferred)
+    }.await;
+
+    manager.remove_transfer(&transfer_id).await;
+    let transferred = result?;
     let _ = app.emit(
         "sftp://progress",
         TransferProgress {
@@ -296,7 +305,8 @@ pub async fn sftp_download(
     let transfer_id = payload.transfer_id.clone();
     let app_handle = app.clone();
     let last_emit = AtomicU64::new(0);
-    let total = sftp
+    let cancel = manager.register_transfer(transfer_id.clone()).await;
+    let result = sftp
         .download(&payload.remote_path, &mut file, |written| {
             let last = last_emit.load(Ordering::Relaxed);
             if written - last >= 64 * 1024 {
@@ -310,21 +320,30 @@ pub async fn sftp_download(
                     },
                 );
             }
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+        }, cancel)
+        .await;
+    manager.remove_transfer(&transfer_id).await;
+    let total = result.map_err(|e| e.to_string())?;
     file.flush()
         .await
         .map_err(|e| format!("刷新本地失败: {e}"))?;
     let _ = app.emit(
         "sftp://progress",
         TransferProgress {
-            transfer_id: payload.transfer_id,
+            transfer_id,
             transferred: total,
             total: Some(total),
         },
     );
     Ok(total)
+}
+
+#[tauri::command]
+pub async fn sftp_cancel_transfer(
+    manager: State<'_, SessionManager>,
+    transfer_id: String,
+) -> Result<bool, String> {
+    Ok(manager.cancel_transfer(&transfer_id).await)
 }
 
 #[tauri::command]

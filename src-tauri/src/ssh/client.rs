@@ -53,6 +53,7 @@ pub struct ConnectParams {
     pub rows: u32,
     pub proxy_jump: Option<ProxyJump>,
     pub proxy: Option<ProxyKind>,
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +175,14 @@ impl SshSession {
             )
             .await
             .map_err(SshError::Russh)?;
+        let locale = params
+            .locale
+            .as_deref()
+            .filter(|l| !l.is_empty())
+            .unwrap_or("C.UTF-8");
+        let _ = channel.set_env(false, "LANG", locale).await;
+        let _ = channel.set_env(false, "LC_ALL", locale).await;
+        let _ = channel.set_env(false, "LC_CTYPE", locale).await;
         channel.request_shell(false).await.map_err(SshError::Russh)?;
 
         let (input_tx, mut input_rx) = mpsc::channel::<InputMsg>(64);
