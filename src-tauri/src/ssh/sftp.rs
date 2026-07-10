@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use russh_sftp::client::SftpSession;
@@ -5,9 +6,8 @@ use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 
-use super::{SshError, SshResult, SshSession};
+use super::{SshError, SshResult, SshSession, TransferState};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,7 +173,7 @@ impl SftpClient {
         remote: &str,
         writer: &mut W,
         mut on_progress: F,
-        cancel: CancellationToken,
+        state: &TransferState,
     ) -> SshResult<u64>
     where
         W: AsyncWriteExt + Unpin,
@@ -187,8 +187,14 @@ impl SftpClient {
         let mut buf = vec![0u8; 64 * 1024];
         let mut total: u64 = 0;
         loop {
+            while state.paused.load(Ordering::Acquire) {
+                state.pause.notified().await;
+                if state.cancel.is_cancelled() {
+                    return Err(SshError::Msg("传输已取消".into()));
+                }
+            }
             tokio::select! {
-                _ = cancel.cancelled() => {
+                _ = state.cancel.cancelled() => {
                     return Err(SshError::Msg("传输已取消".into()));
                 }
                 result = file.read(&mut buf) => {
@@ -213,7 +219,7 @@ impl SftpClient {
         remote: &str,
         mut reader: R,
         mut on_progress: F,
-        cancel: CancellationToken,
+        state: &TransferState,
     ) -> SshResult<u64>
     where
         R: AsyncReadExt + Unpin,
@@ -228,8 +234,14 @@ impl SftpClient {
         let mut buf = vec![0u8; 64 * 1024];
         let mut total: u64 = 0;
         loop {
+            while state.paused.load(Ordering::Acquire) {
+                state.pause.notified().await;
+                if state.cancel.is_cancelled() {
+                    return Err(SshError::Msg("传输已取消".into()));
+                }
+            }
             tokio::select! {
-                _ = cancel.cancelled() => {
+                _ = state.cancel.cancelled() => {
                     return Err(SshError::Msg("传输已取消".into()));
                 }
                 result = reader.read(&mut buf) => {

@@ -144,7 +144,7 @@ pub async fn sftp_upload(
     let transfer_id = payload.transfer_id.clone();
     let app_handle = app.clone();
     let emitted = AtomicU64::new(0);
-    let cancel = manager.register_transfer(transfer_id.clone()).await;
+    let state = manager.register_transfer(transfer_id.clone()).await;
     let result = sftp
         .upload(&payload.remote_path, reader, |transferred| {
             let last = emitted.load(Ordering::Relaxed);
@@ -159,7 +159,7 @@ pub async fn sftp_upload(
                     },
                 );
             }
-        }, cancel)
+        }, &*state)
         .await;
     manager.remove_transfer(&transfer_id).await;
     let n = result.map_err(|e| e.to_string())?;
@@ -206,7 +206,7 @@ pub async fn sftp_upload_dir(
     let app_handle = app.clone();
     let emitted = AtomicU64::new(0);
     let mut transferred: u64 = 0;
-    let cancel = manager.register_transfer(transfer_id.clone()).await;
+    let state = manager.register_transfer(transfer_id.clone()).await;
 
     let result = async {
         for (local, remote) in &files {
@@ -230,7 +230,7 @@ pub async fn sftp_upload_dir(
                             },
                         );
                     }
-                }, cancel.clone())
+                }, &*state)
                 .await
                 .map_err(|e| e.to_string())?;
             transferred += n;
@@ -305,7 +305,7 @@ pub async fn sftp_download(
     let transfer_id = payload.transfer_id.clone();
     let app_handle = app.clone();
     let last_emit = AtomicU64::new(0);
-    let cancel = manager.register_transfer(transfer_id.clone()).await;
+    let state = manager.register_transfer(transfer_id.clone()).await;
     let result = sftp
         .download(&payload.remote_path, &mut file, |written| {
             let last = last_emit.load(Ordering::Relaxed);
@@ -320,7 +320,7 @@ pub async fn sftp_download(
                     },
                 );
             }
-        }, cancel)
+        }, &*state)
         .await;
     manager.remove_transfer(&transfer_id).await;
     let total = result.map_err(|e| e.to_string())?;
@@ -344,6 +344,22 @@ pub async fn sftp_cancel_transfer(
     transfer_id: String,
 ) -> Result<bool, String> {
     Ok(manager.cancel_transfer(&transfer_id).await)
+}
+
+#[tauri::command]
+pub async fn sftp_pause_transfer(
+    manager: State<'_, SessionManager>,
+    transfer_id: String,
+) -> Result<bool, String> {
+    Ok(manager.pause_transfer(&transfer_id).await)
+}
+
+#[tauri::command]
+pub async fn sftp_resume_transfer(
+    manager: State<'_, SessionManager>,
+    transfer_id: String,
+) -> Result<bool, String> {
+    Ok(manager.resume_transfer(&transfer_id).await)
 }
 
 #[tauri::command]

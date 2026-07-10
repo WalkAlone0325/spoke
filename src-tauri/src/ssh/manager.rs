@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, Notify};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -17,11 +18,27 @@ pub enum SessionEvent {
     Error(String),
 }
 
+pub struct TransferState {
+    pub cancel: CancellationToken,
+    pub pause: Arc<Notify>,
+    pub paused: Arc<AtomicBool>,
+}
+
+impl TransferState {
+    pub fn new() -> Self {
+        Self {
+            cancel: CancellationToken::new(),
+            pause: Arc::new(Notify::new()),
+            paused: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct SessionManager {
     inner: Arc<Mutex<HashMap<SessionId, Arc<SshSession>>>>,
     sftps: Arc<Mutex<HashMap<SessionId, Arc<SftpClient>>>>,
-    transfers: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    transfers: Arc<Mutex<HashMap<String, Arc<TransferState>>>>,
 }
 
 impl SessionManager {
@@ -56,15 +73,39 @@ impl SessionManager {
         self.inner.lock().await.remove(id)
     }
 
-    pub async fn register_transfer(&self, id: String) -> CancellationToken {
-        let token = CancellationToken::new();
-        self.transfers.lock().await.insert(id, token.clone());
-        token
+    pub async fn register_transfer(&self, id: String) -> Arc<TransferState> {
+        let state = Arc::new(TransferState::new());
+        self.transfers.lock().await.insert(id, state.clone());
+        state
+    }
+
+    pub async fn get_transfer(&self, id: &str) -> Option<Arc<TransferState>> {
+        self.transfers.lock().await.get(id).cloned()
     }
 
     pub async fn cancel_transfer(&self, id: &str) -> bool {
-        if let Some(token) = self.transfers.lock().await.remove(id) {
-            token.cancel();
+        if let Some(state) = self.transfers.lock().await.remove(id) {
+            state.cancel.cancel();
+            state.pause.notify_waiters();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn pause_transfer(&self, id: &str) -> bool {
+        if let Some(state) = self.transfers.lock().await.get(id) {
+            state.paused.store(true, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn resume_transfer(&self, id: &str) -> bool {
+        if let Some(state) = self.transfers.lock().await.get(id) {
+            state.paused.store(false, Ordering::Release);
+            state.pause.notify_waiters();
             true
         } else {
             false
