@@ -57,6 +57,8 @@ pub fn run() {
             commands::filesystem::local_list,
             commands::filesystem::local_home,
             commands::filesystem::local_is_dir,
+            commands::filesystem::local_stat,
+            commands::filesystem::edit_temp_path,
             commands::secrets::secret_save,
             commands::secrets::secret_get,
             commands::secrets::secret_delete,

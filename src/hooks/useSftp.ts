@@ -97,6 +97,14 @@ export async function localIsDir(path: string): Promise<boolean> {
   return await invoke<boolean>("local_is_dir", { path });
 }
 
+export async function localStat(path: string): Promise<LocalEntry | null> {
+  return await invoke<LocalEntry | null>("local_stat", { path });
+}
+
+export async function editTempPath(filename: string): Promise<string> {
+  return await invoke<string>("edit_temp_path", { filename });
+}
+
 export function joinRemote(dir: string, name: string): string {
   if (name === "..") return parentRemote(dir);
   if (name === ".") return dir;

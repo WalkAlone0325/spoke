@@ -388,6 +388,33 @@ pub async fn local_is_dir(path: String) -> Result<bool, String> {
     Ok(meta.is_dir())
 }
 
+#[tauri::command]
+pub fn edit_temp_path(filename: String) -> Result<String, String> {
+    let dir = std::env::temp_dir().join("spoke-edit");
+    let _ = std::fs::create_dir_all(&dir);
+    Ok(dir.join(filename).to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn local_stat(path: String) -> Result<Option<LocalEntry>, String> {
+    let meta = match tokio::fs::metadata(&path).await {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    Ok(Some(LocalEntry {
+        name: path.rsplit('/').next().unwrap_or(&path).to_string(),
+        path,
+        kind: if meta.is_dir() { LocalEntryKind::Dir } else if meta.is_symlink() { LocalEntryKind::Symlink } else { LocalEntryKind::File },
+        size: meta.len(),
+        modified,
+    }))
+}
+
 fn dirs_local() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return PathBuf::from(home);

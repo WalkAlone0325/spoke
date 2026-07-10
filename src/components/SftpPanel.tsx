@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -12,6 +13,8 @@ import {
   localHome,
   localIsDir,
   localList,
+  localStat,
+  editTempPath,
   parentLocal,
   parentRemote,
   sftpDownload,
@@ -107,6 +110,8 @@ export function SftpPanel() {
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [remoteSelected, setRemoteSelected] = useState<Set<string>>(new Set());
   const [innerDragOver, setInnerDragOver] = useState(false);
+  const [editingFiles, setEditingFiles] = useState<Record<string, { localPath: string; mtime: number }>>({});
+  const [pendingUpload, setPendingUpload] = useState<{ remotePath: string; localPath: string; sessionId: string } | null>(null);
 
   useEffect(() => {
     if (!localCwd) {
@@ -249,6 +254,24 @@ export function SftpPanel() {
     };
   }, [uploadFiles]);
 
+  useEffect(() => {
+    if (Object.keys(editingFiles).length === 0) return;
+    const timer = setInterval(async () => {
+      for (const [remotePath, info] of Object.entries(editingFiles)) {
+        try {
+          const stat = await localStat(info.localPath);
+          if (stat && stat.modified && stat.modified > info.mtime) {
+            const tab = tabs.find((t) => t.connected && t.sessionId);
+            if (tab?.sessionId) {
+              setPendingUpload({ remotePath, localPath: info.localPath, sessionId: tab.sessionId });
+            }
+          }
+        } catch {}
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [editingFiles, tabs]);
+
   const enterRemote = (entry: RemoteEntry) => {
     if (!sessionId) return;
     if (entry.kind === "dir" || entry.kind === "symlink") {
@@ -374,6 +397,10 @@ export function SftpPanel() {
           label: "下载…",
           onClick: () => void handleDownload(entry),
         });
+        items.push({
+          label: "在编辑器中打开",
+          onClick: () => void handleEditInEditor(entry),
+        });
       }
       items.push({
         label: "复制路径",
@@ -486,6 +513,43 @@ export function SftpPanel() {
     }
     setRemoteSelected(new Set());
     void refreshRemote();
+  };
+
+  const handleEditInEditor = async (entry: RemoteEntry) => {
+    if (!sessionId || entry.kind !== "file") return;
+    try {
+      const localPath = await editTempPath(entry.name);
+      const id = crypto.randomUUID();
+      await sftpDownload(sessionId, entry.path, localPath, id);
+      const stat = await localStat(localPath);
+      if (!stat?.modified) return;
+      setEditingFiles((prev) => ({ ...prev, [entry.path]: { localPath, mtime: stat.modified! } }));
+      await openPath(localPath);
+    } catch (e) {
+      console.error("打开编辑器失败", e);
+    }
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!pendingUpload) return;
+    const { remotePath, localPath, sessionId: sid } = pendingUpload;
+    setPendingUpload(null);
+    const id = crypto.randomUUID();
+    try {
+      await sftpUpload(sid, localPath, remotePath, id);
+      const stat = await localStat(localPath);
+      setEditingFiles((prev) => {
+        const next = { ...prev };
+        if (stat?.modified) {
+          next[remotePath] = { localPath, mtime: stat.modified };
+        } else {
+          delete next[remotePath];
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error("上传失败", e);
+    }
   };
 
   const handleDownloadMany = async (entries: RemoteEntry[]) => {
@@ -749,6 +813,50 @@ export function SftpPanel() {
           items={menu.items}
           onClose={() => setMenu(null)}
         />
+      )}
+
+      {pendingUpload && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-md"
+          onClick={() => setPendingUpload(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-[360px] rounded-2xl border border-black/5 bg-white/95 p-5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-ink-800/95"
+          >
+            <div className="mb-3 flex items-center gap-2.5">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-accent-500/10 text-accent-500">
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 3v10M5 8l5-5 5 5M4 17h12" />
+                </svg>
+              </div>
+              <div className="text-[15px] font-semibold text-ink-900 dark:text-ink-100">
+                文件已修改
+              </div>
+            </div>
+            <div className="mb-5 text-sm leading-relaxed text-ink-600 dark:text-ink-400">
+              <span className="break-all font-medium text-ink-800 dark:text-ink-200">
+                {pendingUpload.remotePath}
+              </span>
+              <br />
+              检测到本地修改，是否上传到远程服务器？
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingUpload(null)}
+                className="rounded-lg px-3.5 py-1.5 text-sm font-medium text-ink-600 transition-colors hover:bg-black/5 dark:text-ink-300 dark:hover:bg-white/5"
+              >
+                不上传
+              </button>
+              <button
+                onClick={() => void handleConfirmUpload()}
+                className="rounded-lg bg-brand-500 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-brand-600 hover:shadow-md active:scale-[0.98]"
+              >
+                上传
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
