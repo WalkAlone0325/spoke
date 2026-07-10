@@ -6,6 +6,7 @@ import { TerminalArea } from "./components/TerminalArea";
 import { SftpPanel } from "./components/SftpPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { ConnectDialog } from "./components/ConnectDialog";
+import { KeyGenDialog } from "./components/KeyGenDialog";
 import { loadGroups, loadServers, saveAllGroups, loadCollapsedGroups } from "./store/settings";
 
 function App() {
@@ -18,6 +19,8 @@ function App() {
   const setServers = useAppStore((s) => s.setServers);
   const setGroups = useAppStore((s) => s.setGroups);
   const setCollapsedGroupIds = useAppStore((s) => s.setCollapsedGroupIds);
+  const keyGenOpen = useAppStore((s) => s.keyGenOpen);
+  const setKeyGenOpen = useAppStore((s) => s.setKeyGenOpen);
 
   useEffect(() => {
     loadServers()
@@ -79,6 +82,10 @@ function App() {
       </div>
 
       <ConnectDialog />
+      <KeyGenDialog
+        open={keyGenOpen}
+        onClose={() => setKeyGenOpen(false)}
+      />
     </div>
   );
 }

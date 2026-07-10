@@ -117,6 +117,14 @@ export async function editTempPath(filename: string): Promise<string> {
   return await invoke<string>("edit_temp_path", { filename });
 }
 
+export async function readTextFile(path: string): Promise<string> {
+  return await invoke<string>("read_text_file", { path });
+}
+
+export async function writeTextFile(path: string, content: string): Promise<void> {
+  await invoke("write_text_file", { path, content });
+}
+
 export async function editOpenFile(path: string): Promise<void> {
   await invoke("edit_open_file", { path });
 }
@@ -141,6 +149,17 @@ export function joinLocal(dir: string, name: string): string {
   if (name === "..") return parentLocal(dir);
   if (name === ".") return dir;
   return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
+}
+
+export interface KeyGenResult {
+  privateKey: string;
+  publicKey: string;
+  fingerprint: string;
+  algorithm: string;
+}
+
+export async function generateSshKey(keyType: string, comment: string): Promise<KeyGenResult> {
+  return await invoke<KeyGenResult>("generate_ssh_key", { keyType, comment });
 }
 
 export function parentLocal(dir: string): string {

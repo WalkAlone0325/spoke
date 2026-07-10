@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { sftpStat } from "../hooks/useSftp";
 import { useAppStore } from "../store/appStore";
 import { sshSendData } from "./../hooks/useSshSession";
 import {
@@ -31,6 +31,9 @@ import {
   type TransferProgress,
 } from "../hooks/useSftp";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { FilePickerDialog, type FilePickerMode } from "./FilePickerDialog";
+
+type ConflictAction = "overwrite" | "skip" | "rename";
 
 type Transfer = {
   id: string;
@@ -103,6 +106,7 @@ export function SftpPanel() {
   const remoteCwd = sessionId ? remoteCwdMap[sessionId] ?? "" : "";
 
   const [remoteEntries, setRemoteEntries] = useState<RemoteEntry[]>([]);
+  const [remoteQuery, setRemoteQuery] = useState("");
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
@@ -120,6 +124,25 @@ export function SftpPanel() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editingFiles, setEditingFiles] = useState<Record<string, { localPath: string; mtime: number }>>({});
   const [pendingUpload, setPendingUpload] = useState<{ remotePath: string; localPath: string; sessionId: string } | null>(null);
+  const [conflictDialog, setConflictDialog] = useState<{
+    direction: "upload" | "download";
+    name: string;
+    localPath: string;
+    remotePath: string;
+    resolve: (action: ConflictAction) => void;
+  } | null>(null);
+
+  const filteredRemoteEntries = useMemo(() => {
+    if (!remoteQuery.trim()) return remoteEntries;
+    const q = remoteQuery.trim().toLowerCase();
+    return remoteEntries.filter((e) => e.name.toLowerCase().includes(q));
+  }, [remoteEntries, remoteQuery]);
+  const [filePicker, setFilePicker] = useState<{
+    mode: FilePickerMode;
+    title: string;
+    defaultPath?: string;
+    onPick: (result: string | string[] | null) => void;
+  } | null>(null);
 
   useEffect(() => {
     if (!localCwd) {
@@ -162,17 +185,40 @@ export function SftpPanel() {
     }
   }, [sessionId, remoteCwd]);
 
+  const resolveConflict = useCallback(
+    (direction: "upload" | "download", name: string, localPath: string, remotePath: string): Promise<ConflictAction | null> => {
+      return new Promise((resolve) => {
+        setConflictDialog({ direction, name, localPath, remotePath, resolve });
+      });
+    },
+    [],
+  );
+
   const uploadFiles = useCallback(
     async (paths: string[]) => {
       if (!sessionId || !remoteCwd) return;
       for (const p of paths) {
         const name = p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "upload";
-        const id = crypto.randomUUID();
-        const remotePath = joinRemote(remoteCwd, name);
+        let remotePath = joinRemote(remoteCwd, name);
         let isDir = false;
         try {
           isDir = await localIsDir(p);
         } catch {}
+        if (!isDir) {
+          try {
+            await sftpStat(sessionId, remotePath);
+            const action = await resolveConflict("upload", name, p, remotePath);
+            if (action === "skip") continue;
+            if (action === "rename") {
+              const ts = Date.now();
+              const dot = name.lastIndexOf(".");
+              const base = dot > 0 ? name.slice(0, dot) : name;
+              const ext = dot > 0 ? name.slice(dot) : "";
+              remotePath = joinRemote(remoteCwd, `${base}_${ts}${ext}`);
+            }
+          } catch {}
+        }
+        const id = crypto.randomUUID();
         setTransfers((prev) => [
           ...prev,
           {
@@ -206,7 +252,7 @@ export function SftpPanel() {
         }
       }
     },
-    [sessionId, remoteCwd, refreshRemote],
+    [sessionId, remoteCwd, refreshRemote, resolveConflict],
   );
 
   useEffect(() => {
@@ -307,19 +353,32 @@ export function SftpPanel() {
 
   const upLocal = () => setLocalCwd(parentLocal(localCwd));
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
     if (!sessionId || !remoteCwd) return;
-    const picked = await open({ multiple: true, directory: false, title: "选择要上传的文件" });
-    if (!picked) return;
-    const files = Array.isArray(picked) ? picked : [picked];
-    await uploadFiles(files);
+    setFilePicker({
+      mode: "open-multi",
+      title: "选择要上传的文件",
+      onPick: (result) => {
+        if (result) {
+          const files = Array.isArray(result) ? result : [result];
+          void uploadFiles(files);
+        }
+      },
+    });
   };
 
-  const handleUploadDir = async () => {
+  const handleUploadDir = () => {
     if (!sessionId || !remoteCwd) return;
-    const picked = await open({ multiple: false, directory: true, title: "选择要上传的文件夹" });
-    if (!picked) return;
-    await uploadFiles([picked as string]);
+    setFilePicker({
+      mode: "open-dir",
+      title: "选择要上传的文件夹",
+      onPick: (result) => {
+        if (result) {
+          const files = Array.isArray(result) ? result : [result];
+          void uploadFiles(files);
+        }
+      },
+    });
   };
 
   const openUploadMenu = (e: React.MouseEvent) => {
@@ -341,42 +400,73 @@ export function SftpPanel() {
     });
   };
 
-  const handleDownload = async (entry: RemoteEntry) => {
+  const startDownload = useCallback(
+    async (entry: RemoteEntry, resolvedLocalPath: string) => {
+      if (!sessionId) return;
+      const id = crypto.randomUUID();
+      setTransfers((prev) => [
+        ...prev,
+        {
+          id,
+          direction: "download",
+          name: entry.name,
+          transferred: 0,
+          total: entry.size,
+          done: false,
+          localPath: resolvedLocalPath,
+          remotePath: entry.path,
+        },
+      ]);
+      try {
+        const total = await sftpDownload(sessionId, entry.path, resolvedLocalPath, id);
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.id === id ? { ...t, transferred: total, total, done: true } : t,
+          ),
+        );
+        void localList(localCwd).then(setLocalEntries).catch(() => {});
+      } catch (e) {
+        setTransfers((prev) =>
+          prev.map((t) =>
+            t.id === id
+              ? { ...t, done: true, cancelling: false, error: String(e) }
+              : t,
+          ),
+        );
+      }
+    },
+    [sessionId, localCwd],
+  );
+
+  const handleDownload = (entry: RemoteEntry) => {
     if (!sessionId) return;
     if (entry.kind !== "file") return;
-    const target = await save({ defaultPath: joinLocal(localCwd, entry.name), title: "保存文件" });
-    if (!target) return;
-    const id = crypto.randomUUID();
-    setTransfers((prev) => [
-      ...prev,
-      {
-        id,
-        direction: "download",
-        name: entry.name,
-        transferred: 0,
-        total: entry.size,
-        done: false,
-        localPath: target,
-        remotePath: entry.path,
+    setFilePicker({
+      mode: "save-file",
+      title: "保存文件",
+      defaultPath: joinLocal(localCwd, entry.name),
+      onPick: (result) => {
+        if (!result || Array.isArray(result)) return;
+        (async () => {
+          let target = result as string;
+          const stat = await localStat(target);
+          if (stat) {
+            const action = await resolveConflict("download", entry.name, target, entry.path);
+            if (action === "skip") return;
+            if (action === "rename") {
+              const name = entry.name;
+              const ts = Date.now();
+              const dot = name.lastIndexOf(".");
+              const base = dot > 0 ? name.slice(0, dot) : name;
+              const ext = dot > 0 ? name.slice(dot) : "";
+              target = joinLocal(localCwd, `${base}_${ts}${ext}`);
+              if (await localStat(target)) return;
+            }
+          }
+          await startDownload(entry, target);
+        })();
       },
-    ]);
-    try {
-      const total = await sftpDownload(sessionId, entry.path, target, id);
-      setTransfers((prev) =>
-        prev.map((t) =>
-          t.id === id ? { ...t, transferred: total, total, done: true } : t,
-        ),
-      );
-      void localList(localCwd).then(setLocalEntries).catch(() => {});
-    } catch (e) {
-      setTransfers((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? { ...t, done: true, cancelling: false, error: String(e) }
-            : t,
-        ),
-      );
-    }
+    });
   };
 
   const clearFinished = () =>
@@ -630,7 +720,7 @@ export function SftpPanel() {
     }
   };
 
-  const handleDownloadMany = async (entries: RemoteEntry[]) => {
+  const handleDownloadMany = (entries: RemoteEntry[]) => {
     if (!sessionId) return;
     const files = entries.filter((e) => e.kind === "file");
     const skipped = entries.length - files.length;
@@ -638,42 +728,35 @@ export function SftpPanel() {
       if (skipped > 0) window.alert("目录批量下载暂未支持");
       return;
     }
-    const dir = await open({ directory: true, multiple: false, title: "选择下载保存位置" });
-    if (!dir) return;
-    for (const entry of files) {
-      const id = crypto.randomUUID();
-      const target = joinLocal(dir as string, entry.name);
-      setTransfers((prev) => [
-        ...prev,
-        {
-          id,
-          direction: "download",
-          name: entry.name,
-          transferred: 0,
-          total: entry.size,
-          done: false,
-          localPath: target,
-          remotePath: entry.path,
-        },
-      ]);
-      try {
-        const total = await sftpDownload(sessionId, entry.path, target, id);
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === id ? { ...t, transferred: total, total, done: true } : t,
-          ),
-        );
-      } catch (e) {
-        setTransfers((prev) =>
-          prev.map((t) =>
-            t.id === id
-              ? { ...t, done: true, cancelling: false, error: String(e) }
-              : t,
-          ),
-        );
-      }
-    }
-    void localList(localCwd).then(setLocalEntries).catch(() => {});
+    setFilePicker({
+      mode: "open-dir",
+      title: "选择下载保存位置",
+      onPick: (result) => {
+        if (!result) return;
+        const dir = Array.isArray(result) ? result[0] : result;
+        if (!dir) return;
+        (async () => {
+          for (const entry of files) {
+            let target = joinLocal(dir, entry.name);
+            const stat = await localStat(target);
+            if (stat) {
+              const action = await resolveConflict("download", entry.name, target, entry.path);
+              if (action === "skip") continue;
+              if (action === "rename") {
+                const ts = Date.now();
+                const dot = entry.name.lastIndexOf(".");
+                const base = dot > 0 ? entry.name.slice(0, dot) : entry.name;
+                const ext = dot > 0 ? entry.name.slice(dot) : "";
+                target = joinLocal(dir, `${base}_${ts}${ext}`);
+                if (await localStat(target)) continue;
+              }
+            }
+            await startDownload(entry, target);
+          }
+          void localList(localCwd).then(setLocalEntries).catch(() => {});
+        })();
+      },
+    });
     if (skipped > 0) window.alert(`已跳过 ${skipped} 个目录（暂未支持递归下载）`);
   };
 
@@ -856,7 +939,7 @@ export function SftpPanel() {
               loading={remoteLoading}
               error={remoteError}
               cwd={remoteCwd}
-              entries={remoteEntries}
+              entries={filteredRemoteEntries}
               onUp={upRemote}
               onEnter={enterRemote}
               onDownload={handleDownload}
@@ -879,6 +962,8 @@ export function SftpPanel() {
               onBatchRemove={() =>
                 void handleRemoveMany(Array.from(remoteSelected))
               }
+              searchQuery={remoteQuery}
+              onSearchChange={setRemoteQuery}
             />
           </div>
 
@@ -957,6 +1042,71 @@ export function SftpPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {conflictDialog && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-md"
+          onClick={() => { conflictDialog.resolve("skip"); setConflictDialog(null); }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-[380px] rounded-2xl border border-black/5 bg-white/95 p-5 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-ink-800/95"
+          >
+            <div className="mb-3 flex items-center gap-2.5">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-amber-500/10 text-amber-500">
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="10" cy="12" r="6" /><path d="M10 7v3M10 14h0" />
+                </svg>
+              </div>
+              <div className="text-[15px] font-semibold text-ink-900 dark:text-ink-100">
+                文件已存在
+              </div>
+            </div>
+            <div className="mb-5 text-sm leading-relaxed text-ink-600 dark:text-ink-400">
+              <span className="break-all font-medium text-ink-800 dark:text-ink-200">
+                {conflictDialog.name}
+              </span>
+              <br />
+              {conflictDialog.direction === "upload"
+                ? "远程服务器上已存在同名文件，请选择操作方式："
+                : "本地已存在同名文件，请选择操作方式："}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => { conflictDialog.resolve("overwrite"); setConflictDialog(null); }}
+                className="w-full rounded-lg bg-red-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-red-600 hover:shadow-md active:scale-[0.98]"
+              >
+                覆盖
+              </button>
+              <button
+                onClick={() => { conflictDialog.resolve("rename"); setConflictDialog(null); }}
+                className="w-full rounded-lg bg-brand-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-brand-600 hover:shadow-md active:scale-[0.98]"
+              >
+                自动重命名（添加时间戳后缀）
+              </button>
+              <button
+                onClick={() => { conflictDialog.resolve("skip"); setConflictDialog(null); }}
+                className="w-full rounded-lg border border-black/10 bg-white px-3.5 py-2 text-sm font-medium text-ink-600 transition-colors hover:bg-black/5 dark:border-white/10 dark:bg-transparent dark:text-ink-300 dark:hover:bg-white/5"
+              >
+                跳过
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {filePicker && (
+        <FilePickerDialog
+          open
+          mode={filePicker.mode}
+          title={filePicker.title}
+          defaultPath={filePicker.defaultPath}
+          onClose={(result) => {
+            filePicker.onPick(result);
+            setFilePicker(null);
+          }}
+        />
       )}
     </section>
   );
@@ -1170,6 +1320,8 @@ function RemoteColumn({
   onRowClick,
   onBatchDownload,
   onBatchRemove,
+  searchQuery,
+  onSearchChange,
 }: {
   connected: boolean;
   loading: boolean;
@@ -1192,6 +1344,8 @@ function RemoteColumn({
   onRowClick: (e: React.MouseEvent, entry: RemoteEntry) => void;
   onBatchDownload: () => void;
   onBatchRemove: () => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -1212,8 +1366,10 @@ function RemoteColumn({
       );
     if (loading && entries.length === 0)
       return <EmptyHint icon="⏳" text="加载中…" />;
-    if (entries.length === 0)
+    if (entries.length === 0 && !searchQuery)
       return <EmptyHint icon="📭" text="空目录" />;
+    if (entries.length === 0 && searchQuery)
+      return <EmptyHint icon="🔍" text="无匹配结果" />;
     return (
       <div
         ref={parentRef}
@@ -1279,7 +1435,7 @@ function RemoteColumn({
         </div>
       </div>
     );
-  }, [connected, error, loading, entries, rowVirtualizer, onEnter, onDownload, onEntryContextMenu, onBlankContextMenu]);
+  }, [connected, error, loading, entries, rowVirtualizer, onEnter, onDownload, onEntryContextMenu, onBlankContextMenu, searchQuery]);
 
   return (
     <div
@@ -1296,6 +1452,8 @@ function RemoteColumn({
         onUp={onUp}
         onNav={onNav}
         disabled={!connected}
+        searchQuery={searchQuery}
+        onSearchChange={onSearchChange}
         extra={
           selected.size > 0 && connected ? (
             <div className="ml-auto flex items-center gap-1">
@@ -1352,6 +1510,8 @@ function PathBar({
   disabled = false,
   isLocal = false,
   extra,
+  searchQuery,
+  onSearchChange,
 }: {
   label: string;
   cwd: string;
@@ -1360,6 +1520,8 @@ function PathBar({
   disabled?: boolean;
   isLocal?: boolean;
   extra?: React.ReactNode;
+  searchQuery?: string;
+  onSearchChange?: (q: string) => void;
 }) {
   return (
     <div className="flex items-center gap-1.5 border-b border-black/[0.06] px-2 py-1 text-xs dark:border-white/[0.06]">
@@ -1377,6 +1539,20 @@ function PathBar({
         </svg>
       </button>
       <Breadcrumbs cwd={cwd} isLocal={isLocal} onNav={onNav} />
+      {onSearchChange !== undefined && (
+        <div className="relative ml-auto flex items-center">
+          <svg viewBox="0 0 20 20" className="pointer-events-none absolute left-1.5 h-3 w-3 text-ink-400 dark:text-ink-500" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <circle cx="9" cy="9" r="5.5" /><path d="m14 14 3.5 3.5" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery ?? ""}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="搜索…"
+            className="w-20 rounded-md border border-transparent bg-black/[0.04] py-0.5 pl-5 pr-1.5 text-[11px] outline-none transition-all placeholder:text-ink-400/60 hover:border-black/10 focus:w-32 focus:border-brand-500/40 focus:bg-white dark:bg-white/[0.06] dark:placeholder:text-ink-500/50 dark:hover:border-white/10 dark:focus:bg-ink-800"
+          />
+        </div>
+      )}
       {extra}
     </div>
   );

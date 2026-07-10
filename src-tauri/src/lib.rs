@@ -18,7 +18,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, _event| {
@@ -60,6 +59,8 @@ pub fn run() {
             commands::filesystem::local_stat,
             commands::filesystem::edit_temp_path,
             commands::filesystem::edit_open_file,
+            commands::filesystem::read_text_file,
+            commands::filesystem::write_text_file,
             commands::filesystem::sftp_cancel_transfer,
             commands::filesystem::sftp_pause_transfer,
             commands::filesystem::sftp_resume_transfer,
@@ -67,6 +68,7 @@ pub fn run() {
             commands::secrets::secret_get,
             commands::secrets::secret_delete,
             commands::ssh_config::import_ssh_config,
+            commands::keys::generate_ssh_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

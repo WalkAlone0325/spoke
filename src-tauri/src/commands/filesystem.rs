@@ -455,6 +455,21 @@ pub async fn local_stat(path: String) -> Result<Option<LocalEntry>, String> {
     }))
 }
 
+#[tauri::command]
+pub fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读取文件失败: {e}"))
+}
+
+#[tauri::command]
+pub fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = PathBuf::from(&path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    std::fs::write(&path, &content).map_err(|e| format!("写入文件失败: {e}"))
+}
+
 fn dirs_local() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         return PathBuf::from(home);

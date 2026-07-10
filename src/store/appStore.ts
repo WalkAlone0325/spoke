@@ -50,6 +50,8 @@ interface AppState {
   setCollapsedGroupIds: (ids: Record<string, boolean>) => void;
   terminalTheme: string;
   setTerminalTheme: (id: string) => void;
+  keyGenOpen: boolean;
+  setKeyGenOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -68,6 +70,7 @@ export const useAppStore = create<AppState>((set) => ({
   localCwd: "",
   collapsedGroupIds: {},
   terminalTheme: localStorage.getItem("terminalTheme") ?? "spoke-dark",
+  keyGenOpen: false,
 
   setThemeMode: (mode) => set({ themeMode: mode }),
   setIsDark: (dark) => set({ isDark: dark }),
@@ -111,6 +114,7 @@ export const useAppStore = create<AppState>((set) => ({
     localStorage.setItem("terminalTheme", id);
     set({ terminalTheme: id });
   },
+  setKeyGenOpen: (open) => set({ keyGenOpen: open }),
 }));
 
 export function openSftpPath(path: string) {

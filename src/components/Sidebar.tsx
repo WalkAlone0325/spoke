@@ -4,7 +4,9 @@ import { sshConnect, type AuthPayload, type ConnectPayload } from "../hooks/useS
 import { saveServer, loadServers, deleteServer, saveAllGroups, saveCollapsedGroups, type StoredServer } from "../store/settings";
 import { getSecret, deleteSecret } from "../store/secrets";
 import { importSshConfig } from "../hooks/useSshConfig";
+import { readTextFile, writeTextFile } from "../hooks/useSftp";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { FilePickerDialog, type FilePickerMode } from "./FilePickerDialog";
 
 async function quickConnect(server: StoredServer) {
   const store = useAppStore.getState();
@@ -102,6 +104,13 @@ export function Sidebar() {
   const toggleGroupCollapse = useAppStore((s) => s.toggleGroupCollapse);
   const [query, setQuery] = useState("");
   const [importing, setImporting] = useState(false);
+  const setKeyGenOpen = useAppStore((s) => s.setKeyGenOpen);
+  const [filePicker, setFilePicker] = useState<{
+    mode: FilePickerMode;
+    title: string;
+    defaultPath?: string;
+    onPick: (result: string | string[] | null) => void;
+  } | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupName, setEditingGroupName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -164,6 +173,68 @@ export function Sidebar() {
       setServers(updated);
     }
   };
+
+  const handleExport = useCallback(() => {
+    const data = { version: 1, exportedAt: new Date().toISOString(), servers, groups };
+    const json = JSON.stringify(data, null, 2);
+    setFilePicker({
+      mode: "save-file",
+      title: "导出服务器配置",
+      defaultPath: `spoke-servers-${new Date().toISOString().slice(0, 10)}.json`,
+      onPick: (result) => {
+        if (!result || Array.isArray(result)) return;
+        (async () => {
+          try {
+            await writeTextFile(result as string, json);
+          } catch (e) {
+            console.error("导出失败", e);
+          }
+        })();
+      },
+    });
+  }, [servers, groups]);
+
+  const handleImport = useCallback(() => {
+    setFilePicker({
+      mode: "open-file",
+      title: "导入服务器配置",
+      onPick: (result) => {
+        if (!result || Array.isArray(result)) return;
+        (async () => {
+          try {
+            const text = await readTextFile(result as string);
+            const data = JSON.parse(text);
+            if (!data.servers || !Array.isArray(data.servers)) {
+              window.alert("无效的配置文件格式");
+              return;
+            }
+            const existingIds = new Set(servers.map((s) => s.id));
+            let added = 0;
+            for (const s of data.servers) {
+              if (existingIds.has(s.id)) continue;
+              await saveServer(s);
+              added++;
+            }
+            if (data.groups && Array.isArray(data.groups)) {
+              const allGroups = [...groups];
+              for (const g of data.groups) {
+                if (!allGroups.find((x) => x.id === g.id)) {
+                  allGroups.push(g);
+                }
+              }
+              await saveAllGroups(allGroups);
+              setGroups(allGroups);
+            }
+            setServers(await loadServers());
+            if (added > 0) window.alert(`成功导入 ${added} 个服务器`);
+            else window.alert("没有新服务器可导入");
+          } catch (e) {
+            window.alert(`导入失败: ${e}`);
+          }
+        })();
+      },
+    });
+  }, [servers, groups, setServers, setGroups]);
 
   const onAddGroup = async () => {
     const id = `group_${crypto.randomUUID().slice(0, 8)}`;
@@ -467,6 +538,53 @@ export function Sidebar() {
           </svg>
           <span>{importing ? "导入中…" : "导入 SSH Config"}</span>
         </button>
+
+        <div className="mb-1 mt-2 flex items-center gap-2">
+          <div className="h-px flex-1 bg-black/[0.06] dark:bg-white/[0.06]" />
+          <span className="text-[9px] font-medium uppercase tracking-widest text-ink-400/60 dark:text-ink-500/50">
+            工具
+          </span>
+          <div className="h-px flex-1 bg-black/[0.06] dark:bg-white/[0.06]" />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={() => setKeyGenOpen(true)}
+            className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-500/70 transition-colors hover:bg-black/[0.04] hover:text-ink-700 dark:text-ink-400/60 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
+          >
+            <span className="grid h-5 w-5 place-items-center rounded-md bg-brand-500/10 text-brand-500">
+              <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="10" cy="8" r="3" /><path d="M5.5 13.5a7 7 0 0 1 9 0" /><path d="M3 17a10 10 0 0 1 14 0" />
+              </svg>
+            </span>
+            <span>生成 SSH 密钥</span>
+          </button>
+
+          <div className="flex gap-1">
+            <button
+              onClick={handleExport}
+              className="flex flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-500/70 transition-colors hover:bg-black/[0.04] hover:text-ink-700 dark:text-ink-400/60 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
+            >
+              <span className="grid h-5 w-5 place-items-center rounded-md bg-accent-500/10 text-accent-500">
+                <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 17h12M10 3v10M7 9l3 3 3-3" />
+                </svg>
+              </span>
+              <span>导出配置</span>
+            </button>
+            <button
+              onClick={handleImport}
+              className="flex flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-500/70 transition-colors hover:bg-black/[0.04] hover:text-ink-700 dark:text-ink-400/60 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
+            >
+              <span className="grid h-5 w-5 place-items-center rounded-md bg-accent-500/10 text-accent-500">
+                <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 17h12M10 13V3M7 9l3-3 3 3" />
+                </svg>
+              </span>
+              <span>导入配置</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <ConfirmDialog
@@ -482,6 +600,19 @@ export function Sidebar() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {filePicker && (
+        <FilePickerDialog
+          open
+          mode={filePicker.mode}
+          title={filePicker.title}
+          defaultPath={filePicker.defaultPath}
+          onClose={(result) => {
+            filePicker.onPick(result);
+            setFilePicker(null);
+          }}
+        />
+      )}
     </aside>
   );
 }
