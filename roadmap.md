@@ -170,7 +170,7 @@
 - [x] 4.1 将密码/私钥密码迁移至系统密钥链（`keyring` crate），JSON 中仅存储占位符引用
 - [x] 4.2 实现导入 `~/.ssh/config`：启动时解析该文件，自动生成服务器条目（仅读取不写入）
 - [x] 4.3 支持跳板机（ProxyJump）：连接配置增加 "Jump Server" 字段，Rust 端实现 `russh::config::SshConfig` 的 proxy_jump
-- [ ] 4.4 支持 HTTP/Socks5 代理（界面输入或读取环境变量 `HTTP_PROXY` / `SOCKS5_PROXY`）
+- [x] 4.4 支持 HTTP/Socks5 代理（界面输入或读取环境变量 `HTTP_PROXY` / `SOCKS5_PROXY`）
 
 ---
 
