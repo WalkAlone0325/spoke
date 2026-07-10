@@ -1,7 +1,9 @@
 pub mod commands;
 pub mod ssh;
 
+use tauri::Manager;
 use ssh::SessionManager;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +21,23 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, _event| {
+            let accel = format!("{}", shortcut);
+            if accel == "CommandOrControl+Shift+T" {
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        }).build())
+        .setup(|app| {
+            app.global_shortcut().register("CommandOrControl+Shift+T")?;
+            Ok(())
+        })
         .manage(SessionManager::new())
         .invoke_handler(tauri::generate_handler![
             commands::terminal::ssh_test_connect,

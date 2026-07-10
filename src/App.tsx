@@ -6,7 +6,7 @@ import { TerminalArea } from "./components/TerminalArea";
 import { SftpPanel } from "./components/SftpPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { ConnectDialog } from "./components/ConnectDialog";
-import { loadGroups, loadServers, saveAllGroups } from "./store/settings";
+import { loadGroups, loadServers, saveAllGroups, loadCollapsedGroups } from "./store/settings";
 
 function App() {
   useSystemTheme();
@@ -17,6 +17,7 @@ function App() {
   const setSftpPanelHeight = useAppStore((s) => s.setSftpPanelHeight);
   const setServers = useAppStore((s) => s.setServers);
   const setGroups = useAppStore((s) => s.setGroups);
+  const setCollapsedGroupIds = useAppStore((s) => s.setCollapsedGroupIds);
 
   useEffect(() => {
     loadServers()
@@ -36,7 +37,10 @@ function App() {
         }
       })
       .catch((e) => console.error("加载分组失败", e));
-  }, [setServers, setGroups]);
+    loadCollapsedGroups()
+      .then(setCollapsedGroupIds)
+      .catch((e) => console.error("加载分组折叠状态失败", e));
+  }, [setServers, setGroups, setCollapsedGroupIds]);
 
   const onSidebarDrag = useCallback(
     (dx: number) => setSidebarWidth(sidebarWidth + dx),

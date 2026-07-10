@@ -1,7 +1,7 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useAppStore, type ServerGroup, type TerminalTab } from "../store/appStore";
 import { sshConnect, type AuthPayload, type ConnectPayload } from "../hooks/useSshSession";
-import { saveServer, loadServers, deleteServer, saveAllGroups, type StoredServer } from "../store/settings";
+import { saveServer, loadServers, deleteServer, saveAllGroups, saveCollapsedGroups, type StoredServer } from "../store/settings";
 import { getSecret, deleteSecret } from "../store/secrets";
 import { importSshConfig } from "../hooks/useSshConfig";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -98,6 +98,8 @@ export function Sidebar() {
   const openConnectDialog = useAppStore((s) => s.openConnectDialog);
   const setServers = useAppStore((s) => s.setServers);
   const setGroups = useAppStore((s) => s.setGroups);
+  const collapsedGroupIds = useAppStore((s) => s.collapsedGroupIds);
+  const toggleGroupCollapse = useAppStore((s) => s.toggleGroupCollapse);
   const [query, setQuery] = useState("");
   const [importing, setImporting] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -226,22 +228,26 @@ export function Sidebar() {
     );
   }, [servers, query]);
 
+  useEffect(() => {
+    saveCollapsedGroups(collapsedGroupIds);
+  }, [collapsedGroupIds]);
+
   return (
     <aside className="flex h-full flex-col">
       <div data-tauri-drag-region className="h-9 shrink-0" />
-      <div data-tauri-drag-region className="px-4 pb-3">
-        <div data-tauri-drag-region className="mb-3 flex items-center gap-2.5">
-          <div className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 shadow-[0_4px_12px_-2px_rgba(0,87,255,0.4)]">
-            <div className="pointer-events-none absolute inset-0 rounded-xl bg-linear-to-b from-white/30 to-transparent" />
-            <img src="/spoke-logo.svg" alt="" className="relative h-5 w-5 brightness-0 invert" />
+      <div data-tauri-drag-region className="px-4 pb-4">
+        <div data-tauri-drag-region className="mb-4 flex items-center gap-3">
+          <div className="relative grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-linear-to-br from-brand-500 to-accent-500 shadow-[0_4px_12px_-2px_rgba(0,87,255,0.4)]">
+            <div className="pointer-events-none absolute inset-0 rounded-lg bg-linear-to-b from-white/30 to-transparent" />
+            <img src="/spoke-logo.svg" alt="" className="relative h-4 w-4 brightness-0 invert" />
           </div>
           <div data-tauri-drag-region className="min-w-0">
-            <div data-tauri-drag-region className="text-[15px] font-semibold tracking-tight">
+            <div data-tauri-drag-region className="text-sm font-semibold tracking-tight leading-tight">
               Spoke
             </div>
             <div
               data-tauri-drag-region
-              className="text-[10px] tracking-wide text-ink-500 dark:text-ink-400"
+              className="text-[9px] tracking-wider text-ink-500/70 dark:text-ink-400/60"
             >
               Connect · Command · Convey
             </div>
@@ -250,10 +256,10 @@ export function Sidebar() {
         <div className="relative">
           <svg
             viewBox="0 0 20 20"
-            className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-500 dark:text-ink-400"
+            className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-500/50 dark:text-ink-400/40"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.8"
             strokeLinecap="round"
           >
             <circle cx="9" cy="9" r="6" />
@@ -264,7 +270,7 @@ export function Sidebar() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索服务器"
-            className="w-full rounded-xl border border-transparent bg-black/[0.04] py-1.5 pl-8 pr-2 text-sm outline-none transition-all placeholder:text-ink-500 hover:bg-black/[0.06] focus:border-brand-500/40 focus:bg-white focus:shadow-sm dark:bg-white/[0.06] dark:placeholder:text-ink-400 dark:hover:bg-white/[0.08] dark:focus:bg-ink-800"
+            className="w-full rounded-lg border border-black/[0.06] bg-black/[0.03] py-1.5 pl-8 pr-2 text-sm outline-none transition-all placeholder:text-ink-500/60 hover:border-black/[0.1] hover:bg-black/[0.05] focus:border-brand-500/40 focus:bg-white focus:shadow-xs dark:border-white/[0.08] dark:bg-white/[0.04] dark:placeholder:text-ink-400/50 dark:hover:border-white/[0.12] dark:hover:bg-white/[0.06] dark:focus:bg-ink-800 dark:focus:shadow-xs"
           />
         </div>
       </div>
@@ -273,9 +279,26 @@ export function Sidebar() {
         {groups.map((g) => {
           const list = filtered.filter((s) => (s.groupId ?? "prod") === g.id);
           const isEditing = editingGroupId === g.id;
+          const collapsed = collapsedGroupIds[g.id] ?? false;
           return (
-            <div key={g.id} className="mb-2">
-              <div className="group flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-500 dark:text-ink-400">
+                <div key={g.id}>
+              <div className="group flex items-center gap-0.5 rounded-lg px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-500 dark:text-ink-400 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.03]">
+                <button
+                  onClick={() => toggleGroupCollapse(g.id)}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-ink-500/60 hover:bg-black/10 hover:text-ink-500 dark:text-ink-400/50 dark:hover:bg-white/10 dark:hover:text-ink-400"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    className={`h-3 w-3 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-0"}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M6 4l4 4-4 4" />
+                  </svg>
+                </button>
                 {isEditing ? (
                   <input
                     className="min-w-0 flex-1 rounded border border-brand-500/50 bg-transparent px-1 py-0.5 text-[10px] font-semibold uppercase outline-none"
@@ -288,14 +311,14 @@ export function Sidebar() {
                 ) : (
                   <span className="flex-1 truncate">{g.name}</span>
                 )}
-                <span className="rounded-full bg-black/5 px-1.5 py-[1px] text-[9px] font-medium dark:bg-white/10">
+                <span className="rounded-md bg-black/[0.06] px-1.5 py-[1px] text-[9px] font-semibold dark:bg-white/[0.08]">
                   {list.length}
                 </span>
                 {!isEditing && !DEFAULT_GROUP_IDS.has(g.id) && (
-                  <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <span className="flex items-center gap-0.5 opacity-0 transition-all duration-150 group-hover:opacity-100">
                     <button
                       onClick={() => onStartEditGroup(g)}
-                      className="grid h-4 w-4 place-items-center rounded text-ink-500 hover:bg-black/10 dark:hover:bg-white/10"
+                      className="grid h-5 w-5 place-items-center rounded-md text-ink-500/60 hover:bg-black/10 hover:text-ink-700 dark:hover:bg-white/10 dark:hover:text-ink-200"
                     >
                       <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
                         <path d="M13 4l3 3-9 9H4v-3z" />
@@ -303,7 +326,7 @@ export function Sidebar() {
                     </button>
                     <button
                       onClick={() => onDeleteGroup(g.id)}
-                      className="grid h-4 w-4 place-items-center rounded text-ink-500 hover:bg-red-500/10 hover:text-red-500"
+                      className="grid h-5 w-5 place-items-center rounded-md text-ink-500/60 hover:bg-red-500/10 hover:text-red-500"
                     >
                       <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
                         <path d="M4 6h12M7 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6" />
@@ -312,113 +335,115 @@ export function Sidebar() {
                   </span>
                 )}
               </div>
-              {list.length === 0 ? (
-                <div className="px-3 py-1.5 text-xs text-ink-500/70 dark:text-ink-400/70">
+              {collapsed ? null : list.length === 0 ? (
+                <div className="px-4 py-1.5 text-[11px] text-ink-500/50 dark:text-ink-400/40">
                   暂无服务器
                 </div>
               ) : (
-                list.map((s) => {
-                  const online = activeServerIds.has(s.id);
-                  return (
-                    <div
-                      key={s.id}
-                      onDoubleClick={() => void quickConnect(s)}
-                      className="group relative mx-0.5 mb-0.5 flex select-none items-center gap-2 rounded-xl px-2.5 py-2 transition-all hover:bg-black/[0.05] active:scale-[0.98] dark:hover:bg-white/[0.06]"
-                      title={`双击连接 · ${s.username}@${s.host}:${s.port}`}
-                    >
-                      <span className="relative flex h-2 w-2 shrink-0">
-                        {online && (
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500 opacity-60" />
-                        )}
-                        <span
-                          className={`relative inline-flex h-2 w-2 rounded-full ${
-                            online ? "bg-accent-500" : "bg-ink-400/50 dark:bg-ink-500/60"
-                          }`}
-                        />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{s.name}</div>
-                        <div className="truncate text-[10px] text-ink-500 dark:text-ink-400">
-                          {s.username}@{s.host}
-                          {s.port !== 22 ? `:${s.port}` : ""}
+                <div className="ml-1.5 border-l border-black/[0.06] pl-1.5 dark:border-white/[0.06]">
+                  {list.map((s) => {
+                    const online = activeServerIds.has(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        onDoubleClick={() => void quickConnect(s)}
+                        className="group relative mb-0.5 flex select-none items-center gap-2.5 rounded-lg px-2.5 py-2 transition-all hover:bg-black/[0.04] active:scale-[0.98] dark:hover:bg-white/[0.05]"
+                        title={`双击连接 · ${s.username}@${s.host}:${s.port}`}
+                      >
+                        <span className="relative flex h-2 w-2 shrink-0">
+                          {online && (
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500/70" />
+                          )}
+                          <span
+                            className={`relative inline-flex h-2 w-2 rounded-full ${
+                              online ? "bg-accent-500" : "bg-ink-400/40 dark:bg-ink-500/50"
+                            }`}
+                          />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="overflow-hidden whitespace-nowrap text-sm font-medium leading-snug group-hover:text-ellipsis">{s.name}</div>
+                          <div className="overflow-hidden whitespace-nowrap text-[10px] text-ink-500/70 group-hover:text-ellipsis dark:text-ink-400/60">
+                            {s.username}@{s.host}
+                            {s.port !== 22 ? `:${s.port}` : ""}
+                          </div>
                         </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openConnectDialog(s.id);
+                          }}
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-500/50 opacity-0 transition-all duration-150 hover:bg-black/10 hover:text-ink-700 group-hover:opacity-100 dark:text-ink-400/40 dark:hover:bg-white/10 dark:hover:text-ink-200"
+                          aria-label="编辑"
+                        >
+                          <svg
+                            viewBox="0 0 20 20"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M13 4l3 3-9 9H4v-3z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDelete({
+                              kind: "server",
+                              id: s.id,
+                              name: s.name,
+                              message: "",
+                              passwordRef: s.passwordRef,
+                              passphraseRef: s.passphraseRef,
+                              proxyPasswordRef: s.proxyJump?.passwordRef,
+                              proxyPassphraseRef: s.proxyJump?.passphraseRef,
+                            });
+                          }}
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-ink-500/50 opacity-0 transition-all duration-150 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 dark:text-ink-400/40 dark:hover:bg-red-500/20 dark:hover:text-red-400"
+                          aria-label="删除"
+                        >
+                          <svg
+                            viewBox="0 0 20 20"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M5 6l1 10a1 1 0 001 1h6a1 1 0 001-1l1-10" />
+                            <path d="M8 9v6M12 9v6" />
+                          </svg>
+                        </button>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openConnectDialog(s.id);
-                        }}
-                        className="grid h-6 w-6 place-items-center rounded-md text-ink-500 opacity-0 transition-opacity hover:bg-black/10 group-hover:opacity-100 dark:text-ink-400 dark:hover:bg-white/10"
-                        aria-label="编辑"
-                      >
-                        <svg
-                          viewBox="0 0 20 20"
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M13 4l3 3-9 9H4v-3z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmDelete({
-                            kind: "server",
-                            id: s.id,
-                            name: s.name,
-                            message: "",
-                            passwordRef: s.passwordRef,
-                            passphraseRef: s.passphraseRef,
-                            proxyPasswordRef: s.proxyJump?.passwordRef,
-                            proxyPassphraseRef: s.proxyJump?.passphraseRef,
-                          });
-                        }}
-                        className="grid h-6 w-6 place-items-center rounded-md text-ink-500 opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 dark:text-ink-400 dark:hover:bg-red-500/20 dark:hover:text-red-400"
-                        aria-label="删除"
-                      >
-                        <svg
-                          viewBox="0 0 20 20"
-                          className="h-3.5 w-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M4 6h12M8 6V4a1 1 0 011-1h2a1 1 0 011 1v2M5 6l1 10a1 1 0 001 1h6a1 1 0 001-1l1-10" />
-                          <path d="M8 9v6M12 9v6" />
-                        </svg>
-                      </button>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
           );
         })}
-        <div className="px-2.5 pt-1">
+        <div className="px-1.5 pt-0.5">
           <button
             onClick={onAddGroup}
-            className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-ink-500 transition-colors hover:bg-black/[0.04] hover:text-ink-700 dark:text-ink-400 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
+            className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-ink-500/70 transition-colors hover:bg-black/[0.04] hover:text-ink-700 dark:text-ink-400/60 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
           >
-            <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M10 4v12M4 10h12" />
+            <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M10 4v12M4 10h12" stroke="currentColor" />
             </svg>
             <span>新建分组</span>
           </button>
         </div>
       </nav>
 
-      <div className="border-t border-black/[0.06] p-3 dark:border-white/[0.06]">
+      <div className="border-t border-black/[0.06] px-2.5 py-2.5 dark:border-white/[0.06]">
         <button
           onClick={() => openConnectDialog(null)}
-          className="group relative flex w-full items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-linear-to-r from-brand-500 to-accent-500 px-3 py-2 text-sm font-medium text-white shadow-[0_4px_12px_-2px_rgba(0,87,255,0.4)] transition-all hover:shadow-[0_6px_16px_-2px_rgba(0,87,255,0.5)] active:scale-[0.98]"
+          className="group relative flex w-full items-center justify-center gap-1.5 overflow-hidden rounded-lg bg-linear-to-r from-brand-500 to-accent-500 px-3 py-2 text-sm font-medium text-white shadow-[0_4px_12px_-2px_rgba(0,87,255,0.35)] transition-all hover:shadow-[0_6px_18px_-2px_rgba(0,87,255,0.45)] active:scale-[0.97]"
         >
-          <div className="absolute inset-0 bg-linear-to-b from-white/20 to-transparent" />
+          <div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/20 to-transparent" />
           <svg
             viewBox="0 0 20 20"
             className="relative h-4 w-4"
@@ -434,9 +459,9 @@ export function Sidebar() {
         <button
           onClick={onImportConfig}
           disabled={importing}
-          className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-ink-500 transition-colors hover:bg-black/[0.04] hover:text-ink-700 disabled:opacity-50 dark:text-ink-400 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
+          className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-ink-500/60 transition-colors hover:bg-black/[0.04] hover:text-ink-700 disabled:opacity-40 dark:text-ink-400/50 dark:hover:bg-white/[0.04] dark:hover:text-ink-200"
         >
-          <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 3v12M5 10l5 5 5-5" />
             <path d="M3 16v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1" />
           </svg>

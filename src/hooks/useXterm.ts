@@ -10,6 +10,7 @@ export interface XtermHandle {
   fit: () => void;
   dispose: () => void;
   focus: () => void;
+  setTheme: (theme: ITerminalOptions["theme"]) => void;
 }
 
 export interface UseXtermOptions {
@@ -152,6 +153,9 @@ export function useXterm(
         term.dispose();
       },
       focus: () => term.focus(),
+      setTheme: (t) => {
+        term.options.theme = t;
+      },
     };
 
     return () => {

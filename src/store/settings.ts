@@ -54,6 +54,7 @@ export type StoredAuth =
 const STORE_FILE = "settings.json";
 const SERVERS_KEY = "servers";
 const GROUPS_KEY = "groups";
+const COLLAPSED_GROUPS_KEY = "collapsedGroups";
 
 let cached: Promise<Store> | null = null;
 
@@ -102,5 +103,16 @@ export async function loadGroups(): Promise<StoredGroup[]> {
 export async function saveAllGroups(groups: StoredGroup[]): Promise<void> {
   const s = await store();
   await s.set(GROUPS_KEY, groups);
+  await s.save();
+}
+
+export async function loadCollapsedGroups(): Promise<Record<string, boolean>> {
+  const s = await store();
+  return (await s.get<Record<string, boolean>>(COLLAPSED_GROUPS_KEY)) ?? {};
+}
+
+export async function saveCollapsedGroups(ids: Record<string, boolean>): Promise<void> {
+  const s = await store();
+  await s.set(COLLAPSED_GROUPS_KEY, ids);
   await s.save();
 }

@@ -13,6 +13,9 @@
     "dialog:default",
     "os:default",
     "clipboard-manager:default",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister"
   ]
 }
