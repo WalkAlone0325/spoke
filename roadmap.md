@@ -167,9 +167,9 @@
 ### 🟢 Phase 4：安全与配置增强（预计 2 天）
 *目标：加密凭证，兼容现有 SSH 配置，支持跳板机。*
 
-- [ ] 4.1 将密码/私钥密码迁移至系统密钥链（`keyring` crate），JSON 中仅存储占位符引用
-- [ ] 4.2 实现导入 `~/.ssh/config`：启动时解析该文件，自动生成服务器条目（仅读取不写入）
-- [ ] 4.3 支持跳板机（ProxyJump）：连接配置增加 “Jump Server” 字段，Rust 端实现 `russh::config::SshConfig` 的 proxy_jump
+- [x] 4.1 将密码/私钥密码迁移至系统密钥链（`keyring` crate），JSON 中仅存储占位符引用
+- [x] 4.2 实现导入 `~/.ssh/config`：启动时解析该文件，自动生成服务器条目（仅读取不写入）
+- [x] 4.3 支持跳板机（ProxyJump）：连接配置增加 "Jump Server" 字段，Rust 端实现 `russh::config::SshConfig` 的 proxy_jump
 - [ ] 4.4 支持 HTTP/Socks5 代理（界面输入或读取环境变量 `HTTP_PROXY` / `SOCKS5_PROXY`）
 
 ---
@@ -198,8 +198,11 @@ Phase 2 期间额外补齐的体验类改动，均已提交：
 - [x] **双击新建连接**：Sidebar 服务器条目改为**仅双击**触发连接，避免误触
 - [x] **ResizeHandle 药丸把手**：默认灰色小条，hover/拖拽变品牌渐变 + 放大，视觉反馈明确
 - [x] **稳定性修复**：
-  - `ConnectResult` 补 `rename_all = “camelCase”`，修复前端 `sessionId` 为 `undefined` 导致终端不显示
+  - `ConnectResult` 补 `rename_all = "camelCase"`，修复前端 `sessionId` 为 `undefined` 导致终端不显示
   - `useSshSession` 修复 `StrictMode` 下 `listen()` 泄漏 → **终端输入双字符**问题（移除 StrictMode + cancelled 判断兜底）
+- [x] **服务器/分组删除**：条目 hover 出现删除按钮，红色悬停反馈，删除前弹出 `ConfirmDialog` 二次确认，同时清除对应密钥链记录
+- [x] **默认分组保护**：`生产环境`/`测试环境` 分组不可编辑和删除（前端逻辑 + handler 双重防护）
+- [x] **ConfirmDialog 通用弹窗**：基于 `@headlessui/react` Dialog 的二次确认组件，支持标题/消息/danger 样式
 
 ---
 
@@ -275,7 +278,7 @@ spoke/
 ---
 
 **最后更新**：2026-07-10  
-**状态**：🚧 开发中（Phase 0~2 完成，MVP 可用）
+**状态**：🚧 开发中（Phase 0~4 完成，Phase 2/3/4 已超额交付）
 
 ---
 
