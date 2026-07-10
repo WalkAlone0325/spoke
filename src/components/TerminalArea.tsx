@@ -123,24 +123,34 @@ export function TerminalArea() {
               </svg>
             </button>
             {themeOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border border-black/5 bg-white py-1 shadow-2xl dark:border-white/10 dark:bg-ink-800">
-                {TERMINAL_THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setTerminalTheme(t.id); setThemeOpen(false); }}
-                    className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
-                      terminalTheme === t.id ? "text-ink-900 dark:text-ink-100" : "text-ink-600 dark:text-ink-400"
-                    }`}
-                  >
-                    <span className="flex items-center gap-1">
-                      <span className="inline-block h-3 w-3 rounded-full border border-black/10 dark:border-white/10" style={{ backgroundColor: t.theme?.background as string }} />
-                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.green as string }} />
-                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.blue as string }} />
-                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: t.theme?.magenta as string }} />
-                    </span>
-                    {t.name}
-                  </button>
-                ))}
+              <div className="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-xl border border-black/5 bg-white py-1 shadow-2xl dark:border-white/10 dark:bg-ink-800">
+                {TERMINAL_THEMES.map((t) => {
+                  const active = terminalTheme === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => { setTerminalTheme(t.id); setThemeOpen(false); }}
+                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors ${
+                        active
+                          ? "bg-brand-500/10 text-ink-900 dark:bg-brand-500/15 dark:text-ink-100"
+                          : "text-ink-600 hover:bg-black/5 dark:text-ink-400 dark:hover:bg-white/5"
+                      }`}
+                    >
+                      <span className="flex items-center gap-0.5">
+                        <span className="inline-block h-3.5 w-3.5 rounded-full border border-black/15 dark:border-white/15" style={{ backgroundColor: t.theme?.background as string }} />
+                        <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ backgroundColor: t.theme?.green as string }} />
+                        <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ backgroundColor: t.theme?.blue as string }} />
+                        <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ backgroundColor: t.theme?.magenta as string }} />
+                      </span>
+                      <span className="flex-1">{t.name}</span>
+                      {active && (
+                        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-brand-500" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m5 10 4 4 6-6" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

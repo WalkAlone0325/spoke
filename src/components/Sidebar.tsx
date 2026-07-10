@@ -361,8 +361,8 @@ export function Sidebar() {
                           />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="overflow-hidden whitespace-nowrap text-sm font-medium leading-snug group-hover:text-ellipsis">{s.name}</div>
-                          <div className="overflow-hidden whitespace-nowrap text-[10px] text-ink-500/70 group-hover:text-ellipsis dark:text-ink-400/60">
+                          <div className="text-sm font-medium leading-snug group-hover:truncate">{s.name}</div>
+                          <div className="text-[10px] text-ink-500/70 group-hover:truncate dark:text-ink-400/60">
                             {s.username}@{s.host}
                             {s.port !== 22 ? `:${s.port}` : ""}
                           </div>
